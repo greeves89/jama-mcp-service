@@ -17,6 +17,11 @@ export interface ToolContext {
   /** Kombination aus Key-Einstellung und globaler Notbremse. */
   readOnly: boolean;
   toolsets: Toolset[];
+  /**
+   * Instanzweit abgeschaltete Tools. Wirkt zusaetzlich zu den Toolsets und
+   * gilt fuer alle Zugaenge gleichermassen.
+   */
+  disabledTools: string[];
   /** Antwortbudget in Token fuer diesen Aufruf. */
   tokenBudget: number;
   /** Wird von den Tools befuellt, damit der Aufruf im Audit-Log landet. */

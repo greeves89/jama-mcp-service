@@ -1,4 +1,84 @@
-# Deployment mit Portainer
+# Deployment
+
+Zwei Varianten, je nachdem was in der Zielumgebung schon läuft:
+
+| Variante | Datei | Wann |
+|---|---|---|
+| **Alles inklusive** | `docker-compose.yml` | Nichts vorhanden — bringt nginx und PostgreSQL mit |
+| **Nur die Anwendung** | `docker-compose.traefik.yml` | Traefik und PostgreSQL sind bereits da |
+
+---
+
+# Variante A: bestehende PostgreSQL und Traefik nutzen
+
+Läuft in der Umgebung schon ein Reverse-Proxy und eine Datenbank, ist nginx und
+ein zweiter PostgreSQL-Container überflüssig. Dann genügt der `app`-Dienst.
+
+## Datenbank vorbereiten
+
+Eigener Benutzer, eigene Datenbank — nicht in eine bestehende Datenbank mischen.
+Der Dienst legt sieben Tabellen an (`api_keys`, `usage_events`, `audit_log`,
+`admin_sessions`, `login_attempts`, `jama_connections`, `settings`); einige
+dieser Namen sind generisch genug, um in einer geteilten Datenbank zu
+kollidieren.
+
+```sql
+CREATE USER jama_mcp WITH PASSWORD '<starkes-passwort>';
+CREATE DATABASE jama_mcp OWNER jama_mcp;
+
+-- Nur der eigene Benutzer darf hinein.
+REVOKE ALL ON DATABASE jama_mcp FROM PUBLIC;
+GRANT CONNECT ON DATABASE jama_mcp TO jama_mcp;
+```
+
+Der Benutzer braucht Rechte zum Anlegen von Tabellen — die Migrationen laufen
+beim Start automatisch mit. Als Eigentümer der Datenbank hat er sie.
+
+## Stack starten
+
+`.env` neben der Compose-Datei anlegen:
+
+```bash
+DATABASE_URL=postgres://jama_mcp:<passwort>@<db-host>:5432/jama_mcp
+ENCRYPTION_KEY=<openssl rand -base64 32>
+SESSION_SECRET=<openssl rand -base64 32>
+ADMIN_INITIAL_PIN=<8 Ziffern>
+
+PUBLIC_BASE_URL=https://jama-mcp.example.com
+JAMA_MCP_HOST=jama-mcp.example.com
+
+TRAEFIK_NETWORK=traefik
+TRAEFIK_ENTRYPOINT=websecure
+TRAEFIK_CERTRESOLVER=letsencrypt
+```
+
+```bash
+docker compose -f docker-compose.traefik.yml up -d --build
+```
+
+**Zum `db-host`:** Läuft die PostgreSQL als Container im selben Docker-Netz,
+ist ihr Service-Name der Host. Läuft sie auf dem Docker-Host selbst, ist es
+`host.docker.internal` — unter Linux zusätzlich den `extra_hosts`-Block in der
+Compose-Datei aktivieren.
+
+## Ein Traefik-Detail, das leicht übersehen wird
+
+MCP nutzt Streamable HTTP und liefert Antworten als Ereignisstrom. Ohne kurzes
+Flush-Intervall puffert Traefik den Strom, und der Client bekommt die Antwort
+erst am Ende — bei längeren Tool-Aufrufen läuft er vorher in einen Timeout.
+Deshalb steht in der Compose-Datei:
+
+```yaml
+- "traefik.http.services.jama-mcp.loadbalancer.responseForwarding.flushInterval=1ms"
+```
+
+Da Traefik das TLS übernimmt, muss `PUBLIC_BASE_URL` mit `https://` beginnen.
+Die Anwendung setzt daraufhin automatisch das `Secure`-Flag auf den Cookies und
+liefert HSTS aus. Die übrigen Sicherheits-Header setzt sie ohnehin selbst.
+
+---
+
+# Variante B: alles inklusive, mit Portainer
 
 Portainer kann den Stack direkt aus diesem Repository bauen — es genügt die
 Repository-URL. Vier Umgebungsvariablen musst du allerdings selbst setzen, weil

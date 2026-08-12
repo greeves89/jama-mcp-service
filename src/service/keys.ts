@@ -163,6 +163,7 @@ export async function buildToolContext(resolved: ResolvedKey): Promise<ToolConte
     allowedProjectIds: resolved.key.allowedProjectIds ?? [],
     readOnly: resolved.readOnly,
     toolsets: resolved.toolsets,
+    disabledTools: settings.disabledTools,
     tokenBudget: settings.responseTokenBudget,
     audit: () => {
       // Wird vom MCP-Server ueberschrieben; hier nur als sicherer Standard.

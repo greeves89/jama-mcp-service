@@ -135,15 +135,16 @@ Tool-Auswahl massiv verschlechtern. Wir bauen aufgabenorientierte Tools (siehe K
 ### 3.1 Komponenten
 
 ```
-                    ┌──────────── nginx (einziger Port nach außen: 443) ────────────┐
-                    │                                                                │
-MCP-Clients ────────┼──► /mcp        ──► mcp-server   (Node, Streamable HTTP)        │
-(Claude/Cursor/     │                        │                                       │
- Copilot/VS Code)   │                        ├──► jama-client (Rate-Limiter, Cache,  │
-                    │                        │     Retry, Auth, Feld-Mapping)        │
-Admin-Browser ──────┼──► /admin      ──► admin-app    (Next.js, PIN-Login)           │
-                    │                        │                                       │
-                    └────────────────────────┼───────────────────────────────────────┘
+                    ┌──── Reverse-Proxy (einziger Port nach außen) ─────────────────┐
+                    │      nginx aus dem Stack oder ein vorhandener Traefik         │
+MCP-Clients ────────┼──► /mcp    ─┐                                                 │
+(Claude/Cursor/     │             │                                                 │
+ Copilot/VS Code)   │             ├──► ein Node-Prozess (Fastify)                   │
+                    │             │      ├── MCP-Server (Streamable HTTP + stdio)   │
+Admin-Browser ──────┼──► /admin  ─┘      ├── Admin-API + React-SPA (PIN-Login)      │
+                    │                    └── jama-client (Rate-Limiter, Cache,      │
+                    │                         Retry, Auth, Feld-Mapping)            │
+                    └────────────────────────┼──────────────────────────────────────┘
                                              │
                               ┌──────────────┴──────────────┐
                               │                             │
@@ -168,7 +169,7 @@ Docker-Netzwerk. Persistente Daten (`pgdata`, `redisdata`) in Named Volumes.
 | MCP | `@modelcontextprotocol/sdk` | Referenz-SDK, unterstützt Tools, Resources und Prompts |
 | Transport | **Streamable HTTP** (primär) + **stdio** (optional) | HTTP für den zentralen Multi-User-Betrieb inkl. Key-Auth und Usage-Logging. stdio als schlanker lokaler Modus für Entwickler |
 | HTTP-Server | Fastify | Klein, schnell, gute Zod-Integration |
-| Admin-UI | Next.js (App Router) + Tailwind + **lucide-react** | Server Components, Route Handlers als Admin-API. Icons ausschließlich lucide |
+| Admin-UI | React + Vite + Tailwind + **lucide-react** | Als statisches Bündel vom selben Fastify-Prozess ausgeliefert — ein Prozess weniger als bei einem eigenen Next.js-Server, und Rate-Limiter sowie Cache werden mit dem MCP-Teil geteilt. Icons ausschließlich lucide |
 | DB | **PostgreSQL** | Vorgabe. Drizzle ORM + Drizzle-Migrations (Migrations laufen beim Deploy mit) |
 | Cache / Buckets | Redis | Rate-Limit-Bucket muss prozessübergreifend geteilt werden |
 | Charts | Recharts | Für die Usage-Zeitreihen im Dashboard |
@@ -535,7 +536,8 @@ dessen Identität die Authentifizierung und der PIN bleibt nur als lokaler Fallb
 
 **7 — Tool-Katalog**
 - Alle Tools mit Beschreibung, Eingabe-Schema, Toolset-Zugehörigkeit, Aufrufzahlen
-- Tools global aktivieren/deaktivieren
+- Tools instanzweit abschalten und wieder freigeben. Abgeschaltete Tools
+  werden am MCP-Server nicht registriert und erscheinen in keinem Client
 - **"Ausprobieren"** — Tool direkt aus dem Admin gegen eine gewählte Verbindung ausführen
   und die exakte Antwort sehen, die ein LLM bekäme (inkl. Token-Schätzung)
 

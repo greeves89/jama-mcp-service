@@ -1,0 +1,100 @@
+# Jama MCP Service — nur die Anwendung.
+#
+# Fuer Umgebungen, in denen bereits ein Reverse-Proxy (Traefik) und eine
+# PostgreSQL laufen. Weder nginx noch eine eigene Datenbank werden gestartet.
+#
+#   docker compose -f docker-compose.traefik.yml up -d --build
+#
+# Voraussetzungen:
+#   - Traefik laeuft und ist mit dem unten genannten Docker-Netz verbunden
+#   - Auf der bestehenden PostgreSQL eine eigene Datenbank mit eigenem Benutzer
+#     fuer diesen Dienst (SQL dafuer in docs/DEPLOYMENT.md). Der Dienst legt
+#     sieben Tabellen an, darunter generische Namen wie "settings" — in einer
+#     eigenen Datenbank ist das unkritisch, in einer geteilten nicht.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Alternativ ein vorgebautes Image verwenden und den build-Block entfernen:
+    # image: ghcr.io/<owner>/jama-mcp:1.0.0
+    restart: unless-stopped
+
+    # Kein ports: — Traefik erreicht den Dienst ueber das gemeinsame Docker-Netz.
+    expose:
+      - "8080"
+
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      HOST: 0.0.0.0
+
+      # Zeigt auf die bestehende Datenbank. Bei einer PostgreSQL, die als
+      # Container im selben Docker-Netz laeuft, ist der Host ihr Service-Name.
+      # Laeuft sie auf dem Docker-Host selbst: host.docker.internal
+      # (unter Linux zusaetzlich extra_hosts weiter unten aktivieren).
+      DATABASE_URL: ${DATABASE_URL}
+
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ADMIN_INITIAL_PIN: ${ADMIN_INITIAL_PIN:-}
+
+      # Muss die oeffentliche URL sein, unter der Traefik den Dienst ausliefert.
+      # Beginnt sie mit https://, setzt die Anwendung automatisch das
+      # Secure-Flag auf den Cookies und liefert HSTS aus.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JAMA_RATE_LIMIT_RPS: ${JAMA_RATE_LIMIT_RPS:-6}
+      JAMA_MAX_RETRIES: ${JAMA_MAX_RETRIES:-4}
+      MCP_RESPONSE_TOKEN_BUDGET: ${MCP_RESPONSE_TOKEN_BUDGET:-15000}
+      USAGE_RETENTION_DAYS: ${USAGE_RETENTION_DAYS:-180}
+      GLOBAL_READ_ONLY: ${GLOBAL_READ_ONLY:-false}
+
+    # Nur unter Linux noetig, wenn die Datenbank auf dem Docker-Host laeuft:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+
+      - "traefik.http.routers.jama-mcp.rule=Host(`${JAMA_MCP_HOST}`)"
+      - "traefik.http.routers.jama-mcp.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.jama-mcp.tls=true"
+      - "traefik.http.routers.jama-mcp.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+
+      - "traefik.http.services.jama-mcp.loadbalancer.server.port=8080"
+
+      # WICHTIG fuer MCP: Streamable HTTP liefert Antworten als Ereignisstrom.
+      # Ohne kurzes Flush-Intervall puffert Traefik den Strom, und der Client
+      # bekommt die Antwort erst am Ende — bei laengeren Tool-Aufrufen laeuft er
+      # vorher in einen Timeout.
+      - "traefik.http.services.jama-mcp.loadbalancer.responseForwarding.flushInterval=1ms"
+
+      # Sicherheits-Header setzt die Anwendung selbst. Hier nur der Schutz der
+      # Anmeldung gegen Brute Force — die Anwendung hat zwar eine eigene Sperre
+      # pro IP, aber die kostet je Versuch einen Argon2-Durchlauf.
+      - "traefik.http.middlewares.jama-mcp-ratelimit.ratelimit.average=20"
+      - "traefik.http.middlewares.jama-mcp-ratelimit.ratelimit.burst=40"
+      - "traefik.http.routers.jama-mcp.middlewares=jama-mcp-ratelimit"
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+    networks:
+      - traefik
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}

@@ -81,9 +81,20 @@ lässt sich nicht wiederherstellen.
 
 ### Deployment auf einem Server
 
-Für Portainer, Traefik oder einen anderen Reverse-Proxy siehe
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Portainer baut den Stack direkt aus
-diesem Repository — es genügt die Repository-URL plus vier Umgebungsvariablen.
+Zwei Varianten, je nachdem was in der Zielumgebung schon läuft:
+
+| Datei | Wann | Enthält |
+|---|---|---|
+| `docker-compose.yml` | Nichts vorhanden | Anwendung, nginx, PostgreSQL |
+| `docker-compose.traefik.yml` | Traefik und PostgreSQL laufen bereits | nur die Anwendung |
+
+```bash
+# Bestehende Infrastruktur mitnutzen
+docker compose -f docker-compose.traefik.yml up -d --build
+```
+
+Details, SQL für Benutzer und Datenbank sowie die Portainer-Anleitung stehen in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Anbindung eines MCP-Clients
 

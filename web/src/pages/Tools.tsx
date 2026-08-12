@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, ShieldAlert, Wrench } from 'lucide-react';
+import { Play, Power, PowerOff, ShieldAlert, Wrench } from 'lucide-react';
 import { api, type ToolCatalog, type ToolTryResult } from '../api';
 import { Badge, Button, Card, Field, Notice, Spinner, inputClass, zahl } from '../components/ui';
 
@@ -16,12 +16,28 @@ export default function ToolsPage() {
   const [filter, setFilter] = useState('');
   const [toolsetFilter, setToolsetFilter] = useState('');
   const [probelauf, setProbelauf] = useState<string>();
+  const [schaltet, setSchaltet] = useState<string>();
 
-  useEffect(() => {
+  const laden = () => {
     api.tools().then(setKatalog).catch((error) => setFehler(error.message));
-  }, []);
+  };
 
-  if (fehler) return <Notice tone="bad">{fehler}</Notice>;
+  useEffect(laden, []);
+
+  const umschalten = async (name: string, aktiv: boolean) => {
+    setSchaltet(name);
+    setFehler(undefined);
+    try {
+      await api.setToolActive(name, aktiv);
+      laden();
+    } catch (error) {
+      setFehler(error instanceof Error ? error.message : 'Umschalten fehlgeschlagen');
+    } finally {
+      setSchaltet(undefined);
+    }
+  };
+
+  if (fehler && !katalog) return <Notice tone="bad">{fehler}</Notice>;
   if (!katalog) return <Spinner />;
 
   const gefiltert = katalog.tools.filter((tool) => {
@@ -35,6 +51,8 @@ export default function ToolsPage() {
     );
   });
 
+  const abgeschaltet = katalog.abgeschaltet.length;
+
   return (
     <div className="space-y-6">
       <header>
@@ -42,8 +60,23 @@ export default function ToolsPage() {
         <p className="text-sm text-slate-500 dark:text-slate-400">
           {katalog.tools.length} Tools in {katalog.toolsets.length} Toolsets, dazu{' '}
           {katalog.prompts.length} vorgefertigte Abläufe
+          {abgeschaltet > 0 && ` · ${abgeschaltet} abgeschaltet`}
         </p>
       </header>
+
+      {fehler && <Notice tone="bad">{fehler}</Notice>}
+
+      {abgeschaltet > 0 && (
+        <Notice tone="warn">
+          <span className="inline-flex items-center gap-1">
+            <PowerOff size={14} />
+            {abgeschaltet} {abgeschaltet === 1 ? 'Tool ist' : 'Tools sind'} instanzweit
+            abgeschaltet: <code>{katalog.abgeschaltet.join(', ')}</code>. Abgeschaltete Tools
+            werden keinem MCP-Client mehr angeboten — unabhängig davon, welche Toolsets ein
+            Zugang hat.
+          </span>
+        </Notice>
+      )}
 
       <div className="flex flex-wrap gap-3">
         <input
@@ -68,12 +101,13 @@ export default function ToolsPage() {
 
       <div className="grid gap-3 lg:grid-cols-2">
         {gefiltert.map((tool) => (
-          <Card key={tool.name}>
+          <Card key={tool.name} className={tool.aktiv ? undefined : 'opacity-60'}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="text-sm font-semibold">{tool.name}</code>
                   <Badge>{tool.toolset}</Badge>
+                  {!tool.aktiv && <Badge tone="bad">abgeschaltet</Badge>}
                   {tool.mutating && <Badge tone="warn">schreibend</Badge>}
                   {tool.destructive && (
                     <Badge tone="bad">
@@ -97,16 +131,34 @@ export default function ToolsPage() {
                   {tool.nutzung30Tage.token > 0 && `, ${zahl(tool.nutzung30Tage.token)} Token`}
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => setProbelauf(probelauf === tool.name ? undefined : tool.name)}
-              >
-                <Play size={13} />
-                Probelauf
-              </Button>
+              <div className="flex shrink-0 flex-col gap-1.5">
+                <Button
+                  variant={tool.aktiv ? 'secondary' : 'primary'}
+                  disabled={schaltet === tool.name}
+                  onClick={() => void umschalten(tool.name, !tool.aktiv)}
+                  title={
+                    tool.aktiv
+                      ? 'Instanzweit abschalten — das Tool verschwindet aus allen MCP-Clients'
+                      : 'Wieder freigeben'
+                  }
+                >
+                  {tool.aktiv ? <PowerOff size={13} /> : <Power size={13} />}
+                  {schaltet === tool.name ? '…' : tool.aktiv ? 'Abschalten' : 'Freigeben'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!tool.aktiv}
+                  onClick={() => setProbelauf(probelauf === tool.name ? undefined : tool.name)}
+                >
+                  <Play size={13} />
+                  Probelauf
+                </Button>
+              </div>
             </div>
 
-            {probelauf === tool.name && <Probelauf toolName={tool.name} parameter={tool.parameters} />}
+            {probelauf === tool.name && tool.aktiv && (
+              <Probelauf toolName={tool.name} parameter={tool.parameters} />
+            )}
           </Card>
         ))}
       </div>

@@ -78,6 +78,12 @@ async function main(): Promise<void> {
     allowedProjectIds: projekte,
     readOnly,
     toolsets: toolsetsAusUmgebung(),
+    // Im Einzelplatzbetrieb gibt es kein Dashboard; die Abschaltung laeuft
+    // deshalb ueber die Umgebung, z. B. JAMA_DISABLED_TOOLS=jama_delete_item
+    disabledTools: (process.env.JAMA_DISABLED_TOOLS ?? '')
+      .split(',')
+      .map((eintrag) => eintrag.trim())
+      .filter(Boolean),
     tokenBudget: Number.parseInt(process.env.MCP_RESPONSE_TOKEN_BUDGET ?? '15000', 10),
     audit: () => {
       // Ohne Datenbank kein Audit-Trail. Das ist der Preis des Einzelplatzbetriebs

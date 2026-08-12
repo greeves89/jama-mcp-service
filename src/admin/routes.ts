@@ -737,16 +737,62 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         .groupBy(usageEvents.toolName);
 
       const nachName = new Map(nutzung.map((row) => [row.tool, row]));
+      const settings = await getSettings();
 
       return {
         toolsets: Object.values(TOOLSET_INFO),
         tools: toolCatalog().map((tool) => ({
           ...tool,
+          aktiv: !settings.disabledTools.includes(tool.name),
           nutzung30Tage: nachName.get(tool.name) ?? { aufrufe: 0, fehler: 0, token: 0 },
         })),
         prompts: promptCatalog(),
+        abgeschaltet: settings.disabledTools,
       };
     }),
+  );
+
+  /**
+   * Schaltet ein Tool instanzweit ab oder wieder frei. Die Wirkung ist sofort:
+   * beim naechsten Verbindungsaufbau eines MCP-Clients wird das Tool nicht mehr
+   * registriert, bestehende Verbindungen laufen spaetestens nach Ablauf des
+   * Einstellungs-Zwischenspeichers in den Guard.
+   */
+  app.patch('/admin/api/tools/:name', async (request, reply) =>
+    geschuetzt(
+      request,
+      reply,
+      async () => {
+        const { name } = z.object({ name: z.string() }).parse(request.params);
+        const body = z.object({ aktiv: z.boolean() }).parse(request.body);
+
+        if (!getTool(name)) {
+          throw new ServiceError('VALIDATION', `Unbekanntes Tool "${name}".`, 404);
+        }
+
+        const settings = await getSettings();
+        const abgeschaltet = new Set(settings.disabledTools);
+
+        if (body.aktiv) abgeschaltet.delete(name);
+        else abgeschaltet.add(name);
+
+        await setSetting('disabledTools', [...abgeschaltet], 'admin');
+
+        await recordAudit(
+          {
+            action: body.aktiv ? 'tool.enable' : 'tool.disable',
+            targetType: 'tool',
+            targetKey: name,
+            payload: { abgeschalteteTools: abgeschaltet.size },
+            result: 'ok',
+          },
+          { type: 'admin', ip: clientIp(request) },
+        );
+
+        return { tool: name, aktiv: body.aktiv, abgeschaltet: [...abgeschaltet] };
+      },
+      true,
+    ),
   );
 
   /**

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertConfirmed,
+  assertToolEnabled,
   assertProjectAllowed,
   assertToolsetAllowed,
   assertWriteAllowed,
@@ -26,6 +27,7 @@ function kontext(overrides: Partial<ToolContext> = {}): ToolContext {
     allowedProjectIds: [],
     readOnly: false,
     toolsets: ['core', 'write'],
+    disabledTools: [],
     tokenBudget: 15_000,
     audit: vi.fn(),
     ...overrides,
@@ -44,6 +46,61 @@ function tool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
     ...overrides,
   } as ToolDefinition;
 }
+
+describe('Instanzweite Abschaltung einzelner Tools', () => {
+  it('laesst ein Tool durch, das nicht abgeschaltet ist', () => {
+    expect(() =>
+      assertToolEnabled(tool({ name: 'jama_get_item' }), kontext({ disabledTools: [] })),
+    ).not.toThrow();
+  });
+
+  it('sperrt ein abgeschaltetes Tool', () => {
+    // Einziger Unterschied zum Fall darueber: der Name steht auf der Liste.
+    expect(() =>
+      assertToolEnabled(
+        tool({ name: 'jama_delete_item' }),
+        kontext({ disabledTools: ['jama_delete_item'] }),
+      ),
+    ).toThrow(GuardError);
+  });
+
+  it('trifft nur das genannte Tool, nicht sein ganzes Toolset', () => {
+    // Der eigentliche Zweck: "write" bleibt nutzbar, nur das Loeschen nicht.
+    const kontextMitSperre = kontext({ disabledTools: ['jama_delete_item'] });
+    expect(() =>
+      assertToolEnabled(tool({ name: 'jama_create_item', toolset: 'write' }), kontextMitSperre),
+    ).not.toThrow();
+    expect(() =>
+      assertToolEnabled(tool({ name: 'jama_delete_item', toolset: 'write' }), kontextMitSperre),
+    ).toThrow(GuardError);
+  });
+
+  it('meldet TOOL_DISABLED als Fehlercode', () => {
+    try {
+      assertToolEnabled(tool({ name: 'jama_delete_item' }), kontext({ disabledTools: ['jama_delete_item'] }));
+      expect.unreachable('haette werfen muessen');
+    } catch (error) {
+      expect((error as GuardError).code).toBe('TOOL_DISABLED');
+      // Die Meldung muss erklaeren, dass ein erneuter Versuch zwecklos ist.
+      expect((error as GuardError).message).toContain('instanzweit');
+    }
+  });
+
+  it('greift vor der Toolset-Pruefung', () => {
+    // Wichtig fuer die Reihenfolge: die Abschaltung ist die guenstigste Pruefung
+    // und soll zuerst antworten.
+    try {
+      runGuards(
+        tool({ name: 'jama_delete_item', toolset: 'files' }),
+        {},
+        kontext({ toolsets: ['core'], disabledTools: ['jama_delete_item'] }),
+      );
+      expect.unreachable('haette werfen muessen');
+    } catch (error) {
+      expect((error as GuardError).code).toBe('TOOL_DISABLED');
+    }
+  });
+});
 
 describe('Toolset-Guard', () => {
   it('laesst ein Tool durch, dessen Toolset freigeschaltet ist', () => {
@@ -228,5 +285,28 @@ describe('Redigieren von Aufrufparametern', () => {
     const verschachtelt = ergebnis.fields as Record<string, unknown>;
     expect(verschachtelt.name).toBe('sichtbar');
     expect(verschachtelt.apiKey).toBe('[redigiert]');
+  });
+});
+
+describe('Tool-Registrierung bei Abschaltung', () => {
+  it('entfernt abgeschaltete Tools aus der Liste der zu registrierenden', async () => {
+    const { toolsForToolsets } = await import('../src/mcp/registry.js');
+
+    const alle = toolsForToolsets(['core', 'write']);
+    const abgeschaltet = ['jama_delete_item', 'jama_bulk_update_items'];
+    const uebrig = alle.filter((tool) => !abgeschaltet.includes(tool.name));
+
+    expect(alle.length - uebrig.length).toBe(2);
+    expect(uebrig.some((tool) => tool.name === 'jama_delete_item')).toBe(false);
+    // Der Rest des Toolsets bleibt vollstaendig erhalten — genau das ist der
+    // Zweck gegenueber dem Abschalten eines ganzen Toolsets.
+    expect(uebrig.some((tool) => tool.name === 'jama_create_item')).toBe(true);
+    expect(uebrig.some((tool) => tool.name === 'jama_update_item')).toBe(true);
+  });
+
+  it('laesst bei leerer Abschaltliste alle Tools stehen', async () => {
+    const { toolsForToolsets } = await import('../src/mcp/registry.js');
+    const alle = toolsForToolsets(['core']);
+    expect(alle.filter((tool) => ![].includes(tool.name as never))).toHaveLength(alle.length);
   });
 });

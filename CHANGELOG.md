@@ -4,6 +4,26 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.1.0] — 2026-08-12
+
+### Hinzugefügt
+- **Einzelne Tools instanzweit abschalten.** Im Tool-Katalog lässt sich jedes der
+  53 Tools abschalten und wieder freigeben. Abgeschaltete Tools werden am
+  MCP-Server gar nicht erst registriert und erscheinen in keinem Client —
+  unabhängig davon, welche Toolsets ein Zugang hat. Damit ist etwa möglich:
+  das Toolset `write` freigeben, aber `jama_delete_item` dauerhaft sperren.
+  Im stdio-Betrieb über `JAMA_DISABLED_TOOLS` steuerbar.
+- Neuer Guard `assertToolEnabled` als erste Prüfung in der Kette, plus
+  Fehlercode `TOOL_DISABLED`.
+- `docker-compose.traefik.yml` für Umgebungen, in denen Traefik und PostgreSQL
+  bereits laufen — startet nur die Anwendung.
+- Deployment-Anleitung für Portainer und für bestehende Infrastruktur
+  ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+
+### Geändert
+- Version auf 1.0.0 vereinheitlicht (`package.json` stand auf 0.1.0, während
+  CHANGELOG und Health-Endpunkt bereits 1.0.0 meldeten).
+
 ## [1.0.0] — 2026-08-12
 
 Erste Fassung.

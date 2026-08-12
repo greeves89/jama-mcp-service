@@ -16,6 +16,15 @@ export interface RuntimeSettings {
   responseTokenBudget: number;
   /** Aufbewahrung der Nutzungsdaten in Tagen. */
   usageRetentionDays: number;
+  /**
+   * Namen instanzweit abgeschalteter Tools. Sie werden gar nicht erst am
+   * MCP-Server registriert und tauchen deshalb in keinem Client auf —
+   * unabhaengig davon, welche Toolsets ein Zugang freigeschaltet hat.
+   *
+   * Gedacht fuer den Fall, dass ein einzelnes Tool unerwuenscht ist, sein
+   * Toolset aber gebraucht wird — etwa "write" ohne jama_delete_item.
+   */
+  disabledTools: string[];
 }
 
 const CACHE_TTL_MS = 10_000;
@@ -27,6 +36,7 @@ function defaults(): RuntimeSettings {
     globalReadOnly: config.GLOBAL_READ_ONLY,
     responseTokenBudget: config.MCP_RESPONSE_TOKEN_BUDGET,
     usageRetentionDays: config.USAGE_RETENTION_DAYS,
+    disabledTools: [],
   };
 }
 
@@ -52,6 +62,9 @@ export async function getSettings(): Promise<RuntimeSettings> {
       if (row.key === 'usageRetentionDays' && typeof row.value === 'number') {
         base.usageRetentionDays = row.value;
       }
+      if (row.key === 'disabledTools' && Array.isArray(row.value)) {
+        base.disabledTools = row.value.filter((entry): entry is string => typeof entry === 'string');
+      }
     }
   } catch {
     // Ist die Datenbank kurzzeitig nicht erreichbar, gelten die Startwerte.
@@ -64,7 +77,7 @@ export async function getSettings(): Promise<RuntimeSettings> {
 
 export async function setSetting(
   key: keyof RuntimeSettings,
-  value: boolean | number,
+  value: boolean | number | string[],
   updatedBy: string,
 ): Promise<void> {
   await getDb()

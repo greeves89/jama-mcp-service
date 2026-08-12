@@ -52,7 +52,13 @@ export function buildMcpServer(context: ToolContext, hooks: McpServerHooks = {})
     },
   );
 
-  const tools = toolsForToolsets(context.toolsets);
+  // Abgeschaltete Tools werden gar nicht erst registriert. Sie beim Aufruf
+  // abzuweisen waere zu spaet: das Tool stuende dann in der Liste, das Modell
+  // wuerde es waehlen und erst danach scheitern — zu Lasten von Kontext und
+  // Zeit. Nicht registriert heisst: es existiert fuer den Client nicht.
+  const tools = toolsForToolsets(context.toolsets).filter(
+    (tool) => !context.disabledTools.includes(tool.name),
+  );
   for (const tool of tools) {
     registerTool(server, tool, context, hooks);
   }

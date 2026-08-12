@@ -7,14 +7,31 @@ import type { ToolContext, ToolDefinition } from './types.js';
  * Sie greifen in dieser Reihenfolge, weil jede Stufe die naechste ueberfluessig
  * machen kann und die guenstigste Pruefung zuerst laufen soll:
  *
- *   1. Toolset  — hat dieser Key die Faehigkeit ueberhaupt?
- *   2. Read-only — darf er schreiben (Key-Einstellung oder globale Notbremse)?
- *   3. Confirm  — hat der Aufrufer die Zerstoerung ausdruecklich bestaetigt?
- *   4. Projekt  — darf er dieses konkrete Projekt anfassen?
+ *   1. Abschaltung — ist das Tool instanzweit deaktiviert?
+ *   2. Toolset    — hat dieser Key die Faehigkeit ueberhaupt?
+ *   3. Read-only  — darf er schreiben (Key-Einstellung oder globale Notbremse)?
+ *   4. Confirm    — hat der Aufrufer die Zerstoerung ausdruecklich bestaetigt?
+ *   5. Projekt    — darf er dieses konkrete Projekt anfassen?
  *
  * Die Projektpruefung kommt zuletzt, weil sie als einzige einen Jama-Aufruf
  * kosten kann (Aufloesung eines Items auf sein Projekt).
  */
+
+/**
+ * Instanzweite Abschaltung. Im HTTP-Betrieb wird ein abgeschaltetes Tool gar
+ * nicht erst registriert — diese Pruefung ist das Sicherheitsnetz fuer die
+ * Wege, die daran vorbeifuehren: der Probelauf aus dem Admin und ein
+ * MCP-Server, der laenger als die Cache-Dauer der Einstellungen offen steht.
+ */
+export function assertToolEnabled(tool: ToolDefinition, context: ToolContext): void {
+  if (context.disabledTools.includes(tool.name)) {
+    throw new GuardError(
+      'TOOL_DISABLED',
+      `Das Tool "${tool.name}" ist auf diesem Dienst abgeschaltet. Diese Entscheidung gilt instanzweit und laesst sich nur im Admin-Dashboard unter "Tools" zuruecknehmen.`,
+      { tool: tool.name },
+    );
+  }
+}
 
 export function assertToolsetAllowed(tool: ToolDefinition, context: ToolContext): void {
   if (!context.toolsets.includes(tool.toolset)) {
@@ -121,6 +138,7 @@ export function runGuards(
   args: Record<string, unknown>,
   context: ToolContext,
 ): void {
+  assertToolEnabled(tool, context);
   assertToolsetAllowed(tool, context);
   assertWriteAllowed(tool, context);
   assertConfirmed(tool, args, context);

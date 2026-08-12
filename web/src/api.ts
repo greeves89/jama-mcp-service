@@ -93,6 +93,11 @@ export const api = {
   audit: (limit = 100) => request<AuditRow[]>(`/audit?limit=${limit}`),
 
   tools: () => request<ToolCatalog>('/tools'),
+  setToolActive: (name: string, aktiv: boolean) =>
+    request<{ tool: string; aktiv: boolean; abgeschaltet: string[] }>(`/tools/${name}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ aktiv }),
+    }),
   tryTool: (name: string, apiKey: string, args: unknown) =>
     request<ToolTryResult>(`/tools/${name}/try`, {
       method: 'POST',
@@ -267,9 +272,12 @@ export interface ToolCatalog {
     destructive: boolean;
     labs: boolean;
     parameters: string[];
+    /** false = instanzweit abgeschaltet, wird keinem Client mehr angeboten. */
+    aktiv: boolean;
     nutzung30Tage: { aufrufe: number; fehler: number; token: number };
   }>;
   prompts: Array<{ name: string; title: string; requires: string[] }>;
+  abgeschaltet: string[];
 }
 
 export interface ToolTryResult {
