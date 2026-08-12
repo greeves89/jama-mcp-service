@@ -7,7 +7,12 @@ COPY package.json package-lock.json ./
 COPY web/package.json ./web/
 # npm ci installiert exakt die Versionen aus dem Lockfile — reproduzierbar und
 # ohne stille Aktualisierungen beim Bauen.
-RUN npm ci
+#
+# Bei npm-Workspaces landen die Abhaengigkeiten gehoistet in /app/node_modules;
+# ein web/node_modules entsteht nur, wenn eine Version dort kollidiert. Das
+# mkdir stellt sicher, dass der naechste Build-Schritt in beiden Faellen etwas
+# zu kopieren findet.
+RUN npm ci && mkdir -p /app/web/node_modules
 
 # ---------- Bauen ----------
 FROM node:22-alpine AS build
