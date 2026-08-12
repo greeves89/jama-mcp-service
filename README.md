@@ -79,6 +79,12 @@ lässt sich nicht wiederherstellen.
 3. **API-Keys** → einen Zugang anlegen. Der Key wird genau einmal angezeigt,
    zusammen mit einem fertigen Konfigurationsschnipsel für den MCP-Client.
 
+### Deployment auf einem Server
+
+Für Portainer, Traefik oder einen anderen Reverse-Proxy siehe
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Portainer baut den Stack direkt aus
+diesem Repository — es genügt die Repository-URL plus vier Umgebungsvariablen.
+
 ### Anbindung eines MCP-Clients
 
 ```json
