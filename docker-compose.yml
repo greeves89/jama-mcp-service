@@ -1,0 +1,81 @@
+# Jama MCP Service — lokaler Betrieb
+#
+# Nach aussen wird ausschliesslich der nginx gemappt. Anwendung und Datenbank
+# sind nur ueber das interne Docker-Netz erreichbar; die Datenbank hat gar kein
+# Port-Mapping. Persistente Daten liegen in einem benannten Volume, damit
+# Container jederzeit neu gebaut werden koennen, ohne Daten zu verlieren.
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-8081}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/proxy_params_jama.conf:/etc/nginx/proxy_params_jama.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Kein ports: — erreichbar nur ueber nginx im internen Netz.
+    expose:
+      - "8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://${POSTGRES_USER:-jama_mcp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-jama_mcp}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ADMIN_INITIAL_PIN: ${ADMIN_INITIAL_PIN:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8081}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JAMA_RATE_LIMIT_RPS: ${JAMA_RATE_LIMIT_RPS:-6}
+      JAMA_MAX_RETRIES: ${JAMA_MAX_RETRIES:-4}
+      MCP_RESPONSE_TOKEN_BUDGET: ${MCP_RESPONSE_TOKEN_BUDGET:-15000}
+      USAGE_RETENTION_DAYS: ${USAGE_RETENTION_DAYS:-180}
+      GLOBAL_READ_ONLY: ${GLOBAL_READ_ONLY:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Bewusst kein Port-Mapping: die Datenbank ist nie von aussen erreichbar.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jama_mcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-jama_mcp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jama_mcp} -d ${POSTGRES_DB:-jama_mcp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+    driver: local

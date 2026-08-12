@@ -1,0 +1,53 @@
+{
+  "name": "jama-mcp-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP-Server fuer Jama Connect mit Admin-Dashboard fuer API-Key-Verwaltung und Nutzungsauswertung",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:web": "npm run build --workspace web",
+    "start": "node dist/server.js",
+    "stdio": "node dist/stdio.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace web",
+    "lint": "eslint src tests --ext .ts",
+    "lint:fix": "eslint src tests --ext .ts --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "secrets": "node scripts/gen-secrets.mjs"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^10.1.3",
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "@node-rs/argon2": "^2.0.2",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.3.3",
+    "pino": "^9.7.0",
+    "postgres": "^3.4.7",
+    "turndown": "^7.2.0",
+    "zod": "^3.25.51"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/turndown": "^5.0.5",
+    "@typescript-eslint/eslint-plugin": "^8.33.1",
+    "@typescript-eslint/parser": "^8.33.1",
+    "drizzle-kit": "^0.31.1",
+    "eslint": "^9.28.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.2"
+  }
+}
