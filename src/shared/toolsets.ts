@@ -98,6 +98,20 @@ export const TOOLSET_INFO: Record<Toolset, ToolsetInfo> = {
 /** Sinnvoller Standard beim Anlegen eines neuen Keys: lesend, ohne labs. */
 export const DEFAULT_TOOLSETS: Toolset[] = ['core', 'trace'];
 
+/**
+ * "core" ist unverzichtbar und wird deshalb immer ergaenzt.
+ *
+ * Ohne dieses Toolset fehlen jama_list_projects, jama_whoami und
+ * jama_get_project_schema — damit gibt es keinen Weg, von einem Projektnamen
+ * zur numerischen ID oder von einem ItemType zu seinen Feldern zu kommen. Alle
+ * uebrigen Toolsets setzen diese IDs aber voraus und laufen ins Leere. Ein
+ * Zugang ohne "core" sieht fuer den Anwender aus wie ein kaputter Server:
+ * Tools sind da, aber nichts laesst sich damit anfangen.
+ */
+export function ensureCore(toolsets: readonly Toolset[]): Toolset[] {
+  return toolsets.includes('core') ? [...toolsets] : ['core', ...toolsets];
+}
+
 export function isToolset(value: string): value is Toolset {
   return (TOOLSETS as readonly string[]).includes(value);
 }

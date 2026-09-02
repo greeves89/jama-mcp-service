@@ -1,6 +1,6 @@
 {
   "name": "jama-mcp-service",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "MCP-Server fuer Jama Connect mit Admin-Dashboard fuer API-Key-Verwaltung und Nutzungsauswertung",
   "type": "module",

@@ -351,7 +351,11 @@ function NeuesKeyFormular({
               <label key={toolset.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={toolsets.includes(toolset.id)}
+                  // "Kern" ist Voraussetzung fuer alles andere und deshalb fest.
+                  // Ohne dieses Toolset fehlt der Weg vom Projektnamen zur ID,
+                  // und die uebrigen Tools laufen ins Leere.
+                  disabled={toolset.id === 'core'}
+                  checked={toolset.id === 'core' || toolsets.includes(toolset.id)}
                   onChange={(e) =>
                     setToolsets(
                       e.target.checked
@@ -361,6 +365,9 @@ function NeuesKeyFormular({
                   }
                 />
                 {toolset.label}
+                {toolset.id === 'core' && (
+                  <span className="text-xs text-slate-500">immer aktiv</span>
+                )}
                 {toolset.mutating && <span className="text-xs text-amber-600">schreibend</span>}
               </label>
             ))}

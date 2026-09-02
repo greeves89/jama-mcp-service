@@ -36,7 +36,7 @@ import { generateApiKey } from '../shared/crypto.js';
 import { getConfig } from '../shared/config.js';
 import { ServiceError, toServiceError } from '../shared/errors.js';
 import type { AuditIntent } from '../mcp/types.js';
-import { DEFAULT_TOOLSETS, TOOLSET_INFO, TOOLSETS, parseToolsets } from '../shared/toolsets.js';
+import { DEFAULT_TOOLSETS, TOOLSET_INFO, TOOLSETS, ensureCore, parseToolsets } from '../shared/toolsets.js';
 import { promptCatalog } from '../mcp/prompts.js';
 import { toolCatalog, toolCountByToolset, getTool } from '../mcp/registry.js';
 import { jamaCache } from '../jama/cache.js';
@@ -519,7 +519,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
             keyPrefix: generated.prefix,
             connectionId: body.connectionId,
             jamaCredentialsEnc: body.credentials ? encryptCredentials(body.credentials) : null,
-            toolsets: body.toolsets,
+            toolsets: ensureCore(body.toolsets),
             allowedProjectIds: body.allowedProjectIds,
             readOnly: body.readOnly,
             rateLimitRps: body.rateLimitRps ?? null,
@@ -536,7 +536,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
             payload: {
               name: body.name,
               art: body.accountType,
-              toolsets: body.toolsets,
+              toolsets: ensureCore(body.toolsets),
               nurLesend: body.readOnly,
               produktiveVerbindung: verbindung[0].isProduction,
             },
@@ -573,7 +573,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         const update: Record<string, unknown> = {};
         if (body.name !== undefined) update.name = body.name;
         if (body.owner !== undefined) update.owner = body.owner;
-        if (body.toolsets !== undefined) update.toolsets = body.toolsets;
+        if (body.toolsets !== undefined) update.toolsets = ensureCore(body.toolsets);
         if (body.allowedProjectIds !== undefined) update.allowedProjectIds = body.allowedProjectIds;
         if (body.readOnly !== undefined) update.readOnly = body.readOnly;
         if (body.rateLimitRps !== undefined) update.rateLimitRps = body.rateLimitRps;

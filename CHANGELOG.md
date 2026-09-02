@@ -4,6 +4,21 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.3] — 2026-09-02
+
+### Behoben
+- **Zugaenge ohne das Toolset "core" waren praktisch unbrauchbar.** Ohne dieses
+  Toolset fehlen `jama_list_projects`, `jama_whoami` und
+  `jama_get_project_schema` — es gibt dann keinen Weg von einem Projektnamen
+  oder -kuerzel zur numerischen ID, die alle uebrigen Tools verlangen. Fuer den
+  Anwender sah der Dienst aus wie defekt: Tools waren vorhanden, aber nichts
+  liess sich damit anfangen. "core" wird nun beim Anlegen und Aendern eines
+  Zugangs immer ergaenzt und steht dabei an erster Stelle, damit es bei
+  Client-Plattformen mit Tool-Obergrenze nicht hinten wegfaellt. Bereits
+  bestehende Zugaenge werden beim naechsten Aufruf geheilt — ohne Zutun.
+- Im Dashboard ist "Kern" entsprechend fest gesetzt und als "immer aktiv"
+  gekennzeichnet.
+
 ## [1.2.2] — 2026-09-02
 
 ### Behoben

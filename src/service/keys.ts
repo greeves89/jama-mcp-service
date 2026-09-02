@@ -10,7 +10,7 @@ import {
   safeCompareHex,
 } from '../shared/crypto.js';
 import { getConfig } from '../shared/config.js';
-import { parseToolsets, type Toolset } from '../shared/toolsets.js';
+import { ensureCore, parseToolsets, type Toolset } from '../shared/toolsets.js';
 import { jamaCredentialsSchema, type JamaCredentials } from '../jama/auth.js';
 import { JamaClient } from '../jama/client.js';
 import { getSettings } from './settings.js';
@@ -94,7 +94,9 @@ export async function resolveApiKey(presented: string | undefined): Promise<Reso
   const credentials = decryptCredentials(key, connection);
 
   const settings = await getSettings();
-  const toolsets = parseToolsets(key.toolsets);
+  // Auch bereits bestehende Zugaenge ohne "core" werden hier geheilt — sonst
+  // bliebe eine einmal falsch angelegte Konfiguration dauerhaft unbrauchbar.
+  const toolsets = ensureCore(parseToolsets(key.toolsets));
 
   return {
     key,
