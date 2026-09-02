@@ -82,13 +82,13 @@ const listProjects = defineTool({
   toolset: 'core',
   title: 'Projekte auflisten',
   description:
-    'Listet alle Jama-Projekte auf, die der hinterlegte Benutzer sehen darf, jeweils mit numerischer ID und Projektschluessel. Der Filter contains durchsucht Name, Projektschluessel und Beschreibung — damit ist dies der Weg, ein Kuerzel wie "PRJ-1234" auf die numerische Projekt-ID aufzuloesen, die alle uebrigen Tools erwarten. Ergebnis ist gecacht und kostet in der Regel keinen Aufruf gegen das Rate-Limit.',
+    'DIESEN AUFRUF IMMER ZUERST AUSFUEHREN, WENN NUR EIN PROJEKTNAME ODER -KUERZEL BEKANNT IST. Listet die Jama-Projekte auf, die der hinterlegte Benutzer sehen darf, jeweils mit numerischer ID, Name und Projektschluessel. Der Filter contains durchsucht Name, Projektschluessel, Beschreibung und ID — er ist der einzige Weg, aus einer Bezeichnung wie "Werk Musterstadt" oder einem Kuerzel wie "PRJ-1234" die numerische Projekt-ID zu gewinnen, die alle uebrigen Tools verlangen. Niemals nach der Projekt-ID fragen, ohne vorher hiermit gesucht zu haben. Ergebnis ist gecacht und kostet in der Regel keinen Aufruf gegen das Rate-Limit.',
   inputSchema: {
     contains: z
       .string()
       .optional()
       .describe(
-        'Filtert auf Projekte, deren Name, Projektschluessel oder Beschreibung diesen Text enthaelt (Gross-/Kleinschreibung egal). Hier gehoert auch ein Projektkuerzel wie "PRJ-1234" hinein — damit laesst sich ein solcher Schluessel auf die interne numerische Projekt-ID aufloesen, die alle uebrigen Tools erwarten.',
+        'Suchbegriff. Durchsucht Name, Projektschluessel, Beschreibung und ID, Gross-/Kleinschreibung egal. Ein Teil des Namens genuegt: "Muster" findet "Werk Musterstadt". Ebenso ein Kuerzel wie "PRJ-1234". Ohne Angabe werden alle sichtbaren Projekte geliefert.',
       ),
     includeFolders: z
       .boolean()

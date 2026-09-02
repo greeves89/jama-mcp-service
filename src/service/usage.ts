@@ -136,22 +136,35 @@ export async function usageSummary(filter: UsageFilter): Promise<UsageSummary> {
   };
 }
 
-/** Zeitreihe fuer die Diagramme im Dashboard. */
+/**
+ * Zeitreihe fuer die Diagramme im Dashboard.
+ *
+ * Die Zeiteinheit muss als Literal im SQL stehen: date_trunc erwartet dort
+ * keinen gebundenen Parameter, weil PostgreSQL dessen Typ nicht bestimmen kann
+ * und die Abfrage mit einem Fehler abbricht. Statt den Wert in den SQL-Text zu
+ * kleben, wird zwischen zwei fest ausgeschriebenen Varianten gewaehlt — damit
+ * gelangt kein von aussen bestimmter Text in die Abfrage.
+ */
 export async function usageTimeline(
   filter: UsageFilter,
   bucket: 'hour' | 'day',
 ): Promise<Array<{ zeitpunkt: string; aufrufe: number; fehler: number; token: number }>> {
+  const zeitstufe =
+    bucket === 'hour'
+      ? sql`date_trunc('hour', ${usageEvents.ts})`
+      : sql`date_trunc('day', ${usageEvents.ts})`;
+
   const rows = await getDb()
     .select({
-      zeitpunkt: sql<string>`date_trunc(${bucket}, ${usageEvents.ts})::text`,
+      zeitpunkt: sql<string>`${zeitstufe}::text`,
       aufrufe: sql<number>`count(*)::int`,
       fehler: sql<number>`count(*) filter (where ${usageEvents.status} = 'error')::int`,
       token: sql<number>`coalesce(sum(${usageEvents.estTokens}), 0)::int`,
     })
     .from(usageEvents)
     .where(conditions(filter))
-    .groupBy(sql`date_trunc(${bucket}, ${usageEvents.ts})`)
-    .orderBy(sql`date_trunc(${bucket}, ${usageEvents.ts})`);
+    .groupBy(zeitstufe)
+    .orderBy(zeitstufe);
 
   return rows;
 }

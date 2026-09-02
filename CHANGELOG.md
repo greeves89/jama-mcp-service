@@ -4,6 +4,27 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.2] — 2026-09-02
+
+### Behoben
+- **Die Nutzungsseite im Dashboard brach mit einem SQL-Fehler ab.** In der
+  Zeitreihe wurde die Zeiteinheit als gebundener Parameter an `date_trunc`
+  uebergeben. PostgreSQL sieht dann in SELECT und GROUP BY zwei verschiedene
+  Ausdruecke und weist die Abfrage zurueck (42803). Die Zeiteinheit steht nun
+  als Literal im SQL, gewaehlt aus zwei fest ausgeschriebenen Varianten.
+- **Sprachmodelle fanden Projekte nicht ueber Name oder Kuerzel.** Die
+  Wegweisung fehlte an der Stelle, an der sie wirkt: in den Server-Instructions,
+  die jeder Client im Kontext hat. Dort steht nun ausdruecklich, dass bei
+  bekanntem Namen oder Kuerzel zuerst `jama_list_projects` mit `contains`
+  aufzurufen ist und niemals nach einer numerischen ID gefragt werden soll,
+  ohne vorher gesucht zu haben. Ebenso der Hinweis, dass eine Kennung ohne
+  Item-Typ ein Projektkuerzel ist und kein Document Key.
+
+### Hinzugefuegt
+- Vier Tests, die das erzeugte SQL der Zeitreihe pruefen — ohne Datenbank, damit
+  sie in jedem Lauf mitlaufen. Der Fehler war nur durchgerutscht, weil die
+  Nutzungsseite im Ende-zu-Ende-Test nie aufgerufen wurde.
+
 ## [1.2.1] — 2026-09-02
 
 ### Behoben
