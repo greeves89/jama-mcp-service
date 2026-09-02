@@ -36,7 +36,7 @@ async function request<T>(pfad: string, init: RequestInit = {}): Promise<T> {
     ...init,
     credentials: 'same-origin',
     headers: {
-      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(veraendernd ? { 'x-csrf-token': csrfToken() } : {}),
       ...init.headers,
     },
