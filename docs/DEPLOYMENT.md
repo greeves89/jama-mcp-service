@@ -49,7 +49,6 @@ JAMA_MCP_HOST=jama-mcp.example.com
 
 TRAEFIK_NETWORK=traefik
 TRAEFIK_ENTRYPOINT=websecure
-TRAEFIK_CERTRESOLVER=letsencrypt
 ```
 
 ```bash
@@ -60,6 +59,29 @@ docker compose -f docker-compose.traefik.yml up -d --build
 ist ihr Service-Name der Host. Läuft sie auf dem Docker-Host selbst, ist es
 `host.docker.internal` — unter Linux zusätzlich den `extra_hosts`-Block in der
 Compose-Datei aktivieren.
+
+### Wenn Proxy und Datenbank in verschiedenen Netzen liegen
+
+Der häufigste Fall, sobald die Datenbank zu einem anderen Stack gehört. Prüfen:
+
+```bash
+docker inspect <db-container> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
+Taucht dort das Proxy-Netz nicht auf, hängt die App zusätzlich ins Datenbank-Netz —
+dafür liegt ein fertiges Override bei:
+
+```bash
+echo "DB_NETWORK=<netz-der-datenbank>" >> .env
+docker compose -f docker-compose.traefik.yml -f docker-compose.dbnet.yml up -d
+```
+
+### TLS-Zertifikate
+
+Die Compose-Datei setzt bewusst **keinen** `certresolver`. Viele Traefik-Installationen
+verwalten ihre Zertifikate zentral und kennen gar keinen Resolver — ein unbekannter
+Name lässt den Router dort stillschweigend scheitern. Wer einen Resolver betreibt,
+kommentiert die entsprechende Zeile in den Labels ein.
 
 ## Ein Traefik-Detail, das leicht übersehen wird
 

@@ -1,0 +1,24 @@
+# Zusatz-Override: App zusaetzlich an das Netz der Datenbank haengen.
+#
+# Wird gebraucht, wenn Reverse-Proxy und Datenbank in VERSCHIEDENEN Docker-Netzen
+# liegen — der haeufigste Fall, wenn die Datenbank zu einem anderen Stack gehoert.
+# Ohne dieses Override loest der Hostname der Datenbank im App-Container nicht auf.
+#
+#   docker compose -f docker-compose.traefik.yml -f docker-compose.dbnet.yml up -d
+#
+# In der .env zusaetzlich setzen:
+#   DB_NETWORK=<Name des Docker-Netzes, in dem die Datenbank haengt>
+#
+# Den Namen ermitteln:
+#   docker inspect <db-container> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+
+services:
+  app:
+    networks:
+      - traefik
+      - dbnet
+
+networks:
+  dbnet:
+    external: true
+    name: ${DB_NETWORK}

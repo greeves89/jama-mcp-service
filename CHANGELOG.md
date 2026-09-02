@@ -4,6 +4,39 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.0] — 2026-09-02
+
+### Behoben
+- **Verbindungstest, Key-Rotation, Loeschen, Cache leeren und Abmelden schlugen
+  im Dashboard mit HTTP 400 fehl.** Die Admin-Oberflaeche setzte bei jeder
+  Anfrage `Content-Type: application/json`, auch dort, wo gar keine Nutzlast
+  mitging. Der Server weist eine solche Anfrage ab, weil sie einen JSON-Koerper
+  ankuendigt und keinen liefert. Der Header wird nun nur noch bei tatsaechlich
+  vorhandenem Body gesetzt.
+- **Projekte liessen sich nicht ueber ihren Schluessel finden.** Der Filter
+  `contains` in `jama_list_projects` durchsuchte ausschliesslich den Projektnamen.
+  Ein Projektkuerzel — also die Kennung, die Menschen und Fremdsysteme meist
+  nennen — fuehrte zu keinem Treffer, und es gab keinen Weg, daraus die interne
+  numerische Projekt-ID abzuleiten, die alle uebrigen Tools verlangen. Der Filter
+  durchsucht nun Name, Projektschluessel, Beschreibung und ID.
+
+### Hinzugefuegt
+- `jama_search_items` akzeptiert alternativ zur `projectId` einen `projectKey`
+  und loest ihn selbst auf. Exakte Treffer gehen Teiltreffern vor; bei mehreren
+  Kandidaten werden diese benannt, statt einen zu raten. Bleibt die Suche leer,
+  nennt die Meldung auch fehlende Berechtigungen als moegliche Ursache.
+- `docker-compose.dbnet.yml`: Override, das die Anwendung zusaetzlich an das Netz
+  der Datenbank haengt. Noetig, sobald Reverse-Proxy und Datenbank in
+  verschiedenen Docker-Netzen liegen — der Regelfall, wenn die Datenbank zu einem
+  anderen Stack gehoert.
+- 8 Tests fuer die Aufloesung von Projektkennungen.
+
+### Geaendert
+- Der `certresolver` ist in `docker-compose.traefik.yml` nicht mehr fest gesetzt.
+  Viele Traefik-Installationen verwalten Zertifikate zentral und kennen gar
+  keinen Resolver; ein unbekannter Name laesst den Router dort stillschweigend
+  scheitern. Die Zeile steht auskommentiert bereit.
+
 ## [1.1.0] — 2026-08-12
 
 ### Hinzugefügt

@@ -27,11 +27,16 @@ export class ApiError extends Error {
 async function request<T>(pfad: string, init: RequestInit = {}): Promise<T> {
   const veraendernd = init.method !== undefined && init.method !== 'GET';
 
+  // Content-Type NUR bei tatsaechlich vorhandenem Body setzen. Meldet eine
+  // Anfrage application/json an, liefert aber nichts mit, weist der Server sie
+  // mit 400 ab ("Body cannot be empty when content-type is set"). Das betraf
+  // jeden Aufruf ohne Nutzlast — Verbindungstest, Key rotieren, Loeschen,
+  // Cache leeren und Abmelden.
   const antwort = await fetch(`/admin/api${pfad}`, {
     ...init,
     credentials: 'same-origin',
     headers: {
-      'Content-Type': 'application/json',
+      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(veraendernd ? { 'x-csrf-token': csrfToken() } : {}),
       ...init.headers,
     },

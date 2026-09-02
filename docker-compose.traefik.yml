@@ -63,7 +63,11 @@ services:
       - "traefik.http.routers.jama-mcp.rule=Host(`${JAMA_MCP_HOST}`)"
       - "traefik.http.routers.jama-mcp.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.jama-mcp.tls=true"
-      - "traefik.http.routers.jama-mcp.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      # Zertifikats-Resolver bewusst NICHT gesetzt: viele Traefik-Installationen
+      # verwalten ihre Zertifikate zentral und kennen gar keinen Resolver — ein
+      # unbekannter Name laesst den Router dort stillschweigend scheitern.
+      # Wer einen Resolver nutzt, ergaenzt die Zeile hier:
+      # - "traefik.http.routers.jama-mcp.tls.certresolver=letsencrypt"
 
       - "traefik.http.services.jama-mcp.loadbalancer.server.port=8080"
 

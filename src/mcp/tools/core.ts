@@ -82,12 +82,14 @@ const listProjects = defineTool({
   toolset: 'core',
   title: 'Projekte auflisten',
   description:
-    'Listet alle Jama-Projekte auf, die der hinterlegte Benutzer sehen darf. Optional nach Namensbestandteil filterbar. Ergebnis ist gecacht und kostet damit in der Regel keinen Aufruf gegen das Rate-Limit.',
+    'Listet alle Jama-Projekte auf, die der hinterlegte Benutzer sehen darf, jeweils mit numerischer ID und Projektschluessel. Der Filter contains durchsucht Name, Projektschluessel und Beschreibung — damit ist dies der Weg, ein Kuerzel wie "PRJ-1234" auf die numerische Projekt-ID aufzuloesen, die alle uebrigen Tools erwarten. Ergebnis ist gecacht und kostet in der Regel keinen Aufruf gegen das Rate-Limit.',
   inputSchema: {
     contains: z
       .string()
       .optional()
-      .describe('Filtert auf Projekte, deren Name diesen Text enthaelt (Gross-/Kleinschreibung egal).'),
+      .describe(
+        'Filtert auf Projekte, deren Name, Projektschluessel oder Beschreibung diesen Text enthaelt (Gross-/Kleinschreibung egal). Hier gehoert auch ein Projektkuerzel wie "PRJ-1234" hinein — damit laesst sich ein solcher Schluessel auf die interne numerische Projekt-ID aufloesen, die alle uebrigen Tools erwarten.',
+      ),
     includeFolders: z
       .boolean()
       .default(false)
@@ -105,8 +107,20 @@ const listProjects = defineTool({
 
     if (args.contains) {
       const needle = args.contains.toLowerCase();
+      // Bewusst ueber alle Kennungen hinweg: In der Praxis kommt eine
+      // Projektbezeichnung meist als Kuerzel daher ("PRJ-1234"), nicht als
+      // ausgeschriebener Name. Wuerde nur der Name durchsucht, faende ein
+      // Aufrufer sein Projekt nicht und haette keinen Weg zur numerischen ID,
+      // die alle uebrigen Tools verlangen.
       filtered = filtered.filter((project) =>
-        String(project.fields?.name ?? '').toLowerCase().includes(needle),
+        [
+          project.fields?.name,
+          project.projectKey,
+          project.fields?.projectKey,
+          project.fields?.description,
+          String(project.id),
+        ]
+          .some((wert) => wert != null && String(wert).toLowerCase().includes(needle)),
       );
     }
 
@@ -208,7 +222,13 @@ const searchItems = defineTool({
   description:
     'Durchsucht Items ueber die Jama-Volltextsuche (abstractitems). Unterstuetzt Lucene-Syntax im Feld "contains", etwa "name:Bremsdruck" oder "name:*druck". Mehrere Werte im selben Feld werden mit ODER verknuepft, verschiedene Felder mit UND. Liefert eine kompakte Trefferliste; Details danach ueber jama_get_item.',
   inputSchema: {
-    projectId: z.number().int().optional().describe('Auf ein Projekt einschraenken.'),
+    projectId: z.number().int().optional().describe('Auf ein Projekt einschraenken (numerische ID).'),
+    projectKey: z
+      .string()
+      .optional()
+      .describe(
+        'Alternativ zur projectId: das Projektkuerzel, etwa "PRJ-1234". Wird selbst auf die numerische ID aufgeloest.',
+      ),
     contains: z
       .string()
       .optional()
@@ -241,18 +261,25 @@ const searchItems = defineTool({
   },
   mutating: false,
   handler: async (args, context) => {
-    if (args.projectId !== undefined) assertProjectAllowed(args.projectId, context);
+    // Ein Projektkuerzel zuerst auf die numerische ID aufloesen — Jama nimmt
+    // an dieser Stelle ausschliesslich die interne ID entgegen.
+    let projectId = args.projectId;
+    if (projectId === undefined && args.projectKey) {
+      projectId = await resolveProjectId(args.projectKey, context);
+    }
 
-    if (!args.contains && !args.documentKey && args.projectId === undefined) {
+    if (projectId !== undefined) assertProjectAllowed(projectId, context);
+
+    if (!args.contains && !args.documentKey && projectId === undefined) {
       throw new ServiceError(
         'VALIDATION',
-        'Die Suche braucht mindestens ein Kriterium: projectId, contains oder documentKey. Eine unbegrenzte Suche ueber die gesamte Instanz waere fuer das Rate-Limit zu teuer.',
+        'Die Suche braucht mindestens ein Kriterium: projectId, projectKey, contains oder documentKey. Eine unbegrenzte Suche ueber die gesamte Instanz waere fuer das Rate-Limit zu teuer. Ist nur ein Projektkuerzel bekannt, liefert jama_list_projects mit contains die passende numerische ID.',
         400,
       );
     }
 
     const query: Record<string, string | number | (string | number)[] | undefined> = {
-      project: args.projectId,
+      project: projectId,
       contains: args.contains,
       documentKey: args.documentKey,
       itemType: args.itemTypeIds,
@@ -291,7 +318,7 @@ const searchItems = defineTool({
         gesamt: total,
         naechsterStartAt: nextStartAt,
       },
-      projectId: args.projectId,
+      projectId,
       notes: notes.length > 0 ? notes : undefined,
     };
   },
@@ -689,6 +716,58 @@ const listUsers = defineTool({
  * Document Key kostet einen zusaetzlichen Aufruf, ist aber der einzige Weg —
  * Jama bietet keinen direkten Zugriff per Key.
  */
+/**
+ * Loest ein Projektkuerzel wie "PRJ-1234" auf die interne numerische Projekt-ID
+ * auf. Jama fuehrt beide Kennungen parallel; jede API-Abfrage verlangt aber die
+ * numerische — waehrend Menschen und Fremdsysteme fast immer das Kuerzel nennen.
+ * Ohne diese Bruecke bliebe ein Aufrufer, der nur das Kuerzel kennt, stecken.
+ */
+export async function resolveProjectId(
+  reference: string,
+  context: { client: { schema: import('../../jama/schema.js').SchemaResolver } },
+): Promise<number> {
+  const trimmed = reference.trim();
+
+  // Wurde doch eine Zahl uebergeben, direkt verwenden.
+  const numeric = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(numeric) && String(numeric) === trimmed) return numeric;
+
+  const projects = await context.client.schema.getProjects();
+  const needle = trimmed.toLowerCase();
+
+  const exakt = projects.find(
+    (project) =>
+      String(project.projectKey ?? '').toLowerCase() === needle ||
+      String(project.fields?.projectKey ?? '').toLowerCase() === needle ||
+      String(project.fields?.name ?? '').toLowerCase() === needle,
+  );
+  if (exakt) return exakt.id;
+
+  const teilweise = projects.filter((project) =>
+    [project.projectKey, project.fields?.projectKey, project.fields?.name]
+      .filter(Boolean)
+      .some((wert) => String(wert).toLowerCase().includes(needle)),
+  );
+
+  if (teilweise.length === 1) return teilweise[0]!.id;
+
+  if (teilweise.length > 1) {
+    throw new ServiceError(
+      'VALIDATION',
+      `"${trimmed}" passt auf mehrere Projekte: ${teilweise
+        .map((project) => `${project.fields?.name ?? project.id} (ID ${project.id})`)
+        .join(', ')}. Bitte die numerische projectId angeben.`,
+      400,
+    );
+  }
+
+  throw new ServiceError(
+    'JAMA_NOT_FOUND',
+    `Kein Projekt mit der Kennung "${trimmed}" gefunden. jama_list_projects zeigt alle sichtbaren Projekte samt ihrer numerischen IDs; moeglicherweise fehlt dem hinterlegten Jama-Benutzer auch schlicht die Berechtigung fuer dieses Projekt.`,
+    404,
+  );
+}
+
 export async function resolveItem(
   args: { itemId?: number; documentKey?: string },
   context: { client: { http: import('../../jama/http.js').JamaHttp } },
