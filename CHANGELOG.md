@@ -4,6 +4,18 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.1] — 2026-09-02
+
+### Behoben
+- **Der Probelauf im Dashboard wurde nicht protokolliert.** Er ist der einzige
+  Weg, ein Tool ausserhalb von MCP auszufuehren — und schreibende Tools
+  veraendern dabei echte Daten. Bislang entstand dabei weder ein
+  Nutzungsereignis noch ein Audit-Eintrag; damit gab es einen Weg, an der
+  Nachweisfuehrung vorbei zu schreiben. Probelaeufe erscheinen nun in der
+  Nutzungsauswertung (als Zugang mit dem Zusatz "Probelauf") und im Audit-Log,
+  mit dem Administrator als Akteur statt des Key-Inhabers. Erfolgreiche wie
+  fehlgeschlagene Laeufe werden gleichermassen erfasst.
+
 ## [1.2.0] — 2026-09-02
 
 ### Behoben

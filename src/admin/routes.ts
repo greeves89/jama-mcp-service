@@ -26,6 +26,7 @@ import {
   recentAudit,
   recentEvents,
   recordAudit,
+  recordUsage,
   topKeys,
   topTools,
   usageSummary,
@@ -34,6 +35,7 @@ import {
 import { generateApiKey } from '../shared/crypto.js';
 import { getConfig } from '../shared/config.js';
 import { ServiceError, toServiceError } from '../shared/errors.js';
+import type { AuditIntent } from '../mcp/types.js';
 import { DEFAULT_TOOLSETS, TOOLSET_INFO, TOOLSETS, parseToolsets } from '../shared/toolsets.js';
 import { promptCatalog } from '../mcp/prompts.js';
 import { toolCatalog, toolCountByToolset, getTool } from '../mcp/registry.js';
@@ -42,7 +44,7 @@ import { rateLimiterSnapshots } from '../jama/rate-limiter.js';
 import { checkConnection, JamaClient } from '../jama/client.js';
 import { jamaCredentialsSchema } from '../jama/auth.js';
 import { buildToolContext, resolveApiKey } from '../service/keys.js';
-import { runGuards } from '../mcp/guards.js';
+import { redactArgs, runGuards } from '../mcp/guards.js';
 import { renderResult } from '../mcp/server.js';
 
 /**
@@ -816,19 +818,63 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         const resolved = await resolveApiKey(body.apiKey);
         const context = await buildToolContext(resolved);
 
-        const gestartet = Date.now();
-        runGuards(tool, body.args, context);
-        const result = await tool.handler(body.args as never, context);
-        const text = renderResult(result, context.tokenBudget);
+        // Ein Probelauf ist kein Trockenlauf: schreibende Tools veraendern hier
+        // echte Daten. Er muss deshalb genauso protokolliert werden wie ein
+        // Aufruf ueber MCP — sonst gaebe es einen Weg, an Nutzungsstatistik und
+        // Audit-Trail vorbei zu schreiben. Der Akteur ist dabei der Admin, nicht
+        // der Inhaber des verwendeten Keys.
+        const auditEintraege: AuditIntent[] = [];
+        context.audit = (entry) => auditEintraege.push(entry);
 
-        return {
-          tool: name,
-          dauerMs: Date.now() - gestartet,
-          jamaAufrufe: context.client.stats.jamaCalls,
-          cacheTreffer: context.client.stats.cacheHits,
-          geschaetzteToken: Math.ceil(text.length / 3.6),
-          antwort: text,
-        };
+        const gestartet = Date.now();
+        let status: 'ok' | 'error' = 'ok';
+        let fehlerCode: string | undefined;
+
+        try {
+          runGuards(tool, body.args, context);
+          const result = await tool.handler(body.args as never, context);
+          const text = renderResult(result, context.tokenBudget);
+
+          await protokolliereProbelauf({
+            tool,
+            args: body.args,
+            resolved,
+            context,
+            auditEintraege,
+            dauerMs: Date.now() - gestartet,
+            status,
+            ip: clientIp(request),
+            estTokens: Math.ceil(text.length / 3.6),
+            responseBytes: Buffer.byteLength(text, 'utf8'),
+          });
+
+          return {
+            tool: name,
+            dauerMs: Date.now() - gestartet,
+            jamaAufrufe: context.client.stats.jamaCalls,
+            cacheTreffer: context.client.stats.cacheHits,
+            geschaetzteToken: Math.ceil(text.length / 3.6),
+            antwort: text,
+          };
+        } catch (error) {
+          status = 'error';
+          fehlerCode = toServiceError(error).code;
+          await protokolliereProbelauf({
+            tool,
+            args: body.args,
+            resolved,
+            context,
+            auditEintraege,
+            dauerMs: Date.now() - gestartet,
+            status,
+            fehlerCode,
+            ip: clientIp(request),
+            estTokens: 0,
+            responseBytes: 0,
+          });
+          throw error;
+        }
+
       },
       true,
     ),
@@ -930,6 +976,75 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       },
       true,
     ),
+  );
+}
+
+
+/**
+ * Schreibt Nutzung und Audit fuer einen Probelauf aus dem Dashboard.
+ *
+ * Der Probelauf ist der einzige Weg, ein Tool ausserhalb von MCP auszufuehren.
+ * Bliebe er unprotokolliert, gaebe es eine Luecke im Nachweis — gerade dort, wo
+ * er am ehesten benutzt wird: beim Ausprobieren schreibender Tools. Die
+ * Eintraege sind als Probelauf gekennzeichnet und nennen den Admin als Akteur,
+ * damit sie nicht mit regulaeren Aufrufen des Key-Inhabers verwechselt werden.
+ */
+async function protokolliereProbelauf(vorgang: {
+  tool: { name: string; toolset: string; mutating: boolean };
+  args: Record<string, unknown>;
+  resolved: { key: { id: string; name: string } };
+  context: { client: { stats: { jamaCalls: number; cacheHits: number; retries: number } } };
+  auditEintraege: AuditIntent[];
+  dauerMs: number;
+  status: 'ok' | 'error';
+  fehlerCode?: string;
+  ip: string;
+  estTokens: number;
+  responseBytes: number;
+}): Promise<void> {
+  await recordUsage(
+    {
+      toolName: vorgang.tool.name,
+      toolset: vorgang.tool.toolset,
+      durationMs: vorgang.dauerMs,
+      status: vorgang.status,
+      errorCode: vorgang.fehlerCode,
+      jamaCalls: vorgang.context.client.stats.jamaCalls,
+      cacheHits: vorgang.context.client.stats.cacheHits,
+      retries: vorgang.context.client.stats.retries,
+      responseBytes: vorgang.responseBytes,
+      estTokens: vorgang.estTokens,
+      truncated: false,
+    },
+    { id: vorgang.resolved.key.id, name: `${vorgang.resolved.key.name} (Probelauf)` },
+  );
+
+  // Was das Tool selbst zu protokollieren hatte, mit Admin als Akteur.
+  for (const eintrag of vorgang.auditEintraege) {
+    await recordAudit(eintrag, {
+      type: 'admin',
+      id: vorgang.resolved.key.id,
+      name: `Probelauf ueber Zugang "${vorgang.resolved.key.name}"`,
+      ip: vorgang.ip,
+    });
+  }
+
+  // Zusaetzlich der Probelauf als solcher — auch bei lesenden Tools, damit
+  // nachvollziehbar bleibt, wer wann was ausprobiert hat.
+  await recordAudit(
+    {
+      action: 'tool.tryRun',
+      targetType: 'tool',
+      targetKey: vorgang.tool.name,
+      payload: {
+        zugang: vorgang.resolved.key.name,
+        schreibend: vorgang.tool.mutating,
+        argumente: redactArgs(vorgang.args),
+      },
+      result: vorgang.status,
+      message: vorgang.fehlerCode,
+    },
+    { type: 'admin', ip: vorgang.ip },
   );
 }
 
