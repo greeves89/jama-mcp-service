@@ -4,6 +4,37 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.5.0] — 2026-09-04
+
+### Behoben
+- **Fehler waren im Containerlog nicht zu sehen.** Fastifys Request-Logging war
+  abgeschaltet und die Admin-API schickte ihre Fehler ausschliesslich an den
+  Browser. Wer nur `docker logs` hatte, sah einen stillen Dienst und keinen
+  Hinweis auf die Ursache — bei einem fehlgeschlagenen Verbindungstest ebenso
+  wie bei einer abgewiesenen Anmeldung. Jede Antwort ab Status 400 wird jetzt
+  protokolliert, mit Methode, Pfad, Status, Dauer und Client-Adresse, dazu der
+  Fehlercode und die Klartextmeldung. Ab 500 als Fehler samt Stacktrace,
+  darunter als Warnung.
+- **Fehlgeschlagene Verbindungstests blieben unsichtbar.** Sie antworten mit
+  HTTP 200, weil der Test technisch durchlief — der Antwort-Hook sieht davon
+  also nichts. Die Route protokolliert das Ergebnis nun selbst, im Fehlerfall
+  mit der Meldung von Jama.
+- Ein Test der Zeitreihe lud drizzle innerhalb der Testfunktion. Der erste
+  Import kostet knapp zwei Sekunden und brachte ihn gelegentlich ueber das
+  Zeitlimit — ein Fehlschlag ohne Bezug zur geprueften Sache. Die Imports stehen
+  jetzt am Dateianfang, die Laufzeit sank von 1,9 s auf 13 ms.
+
+### Hinzugefuegt
+- **Begrenzung der Containerlogs auf 100 MB je Dienst** (fuenf Dateien zu je
+  20 MB). Ohne diese Angabe waechst die JSON-Datei des Docker-Logtreibers
+  unbegrenzt; Docker raeumt dort von sich aus nichts auf, und auf kleinen
+  Maschinen laeuft darueber irgendwann die Platte voll. Die Werte stehen in den
+  Compose-Dateien unter `x-logging` und gelten ueber einen YAML-Anker fuer alle
+  Dienste.
+- Abschnitt "Logs" in der Deployment-Anleitung: was auf welcher Stufe erscheint,
+  wie die Groessenbegrenzung wirkt und warum erfolgreiche Anfragen bewusst nicht
+  protokolliert werden.
+
 ## [1.4.0] — 2026-09-04
 
 ### Hinzugefuegt

@@ -12,6 +12,16 @@
 #     sieben Tabellen an, darunter generische Namen wie "settings" — in einer
 #     eigenen Datenbank ist das unkritisch, in einer geteilten nicht.
 
+# Begrenzung der Containerlogs: fuenf Dateien zu je 20 MB, also hoechstens
+# 100 MB je Container. Ohne diese Angabe waechst die JSON-Datei des
+# Docker-Logtreibers unbegrenzt weiter und fuellt irgendwann die Platte —
+# Docker raeumt dort von sich aus nichts auf.
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   app:
     build:
@@ -20,6 +30,7 @@ services:
     # Alternativ ein vorgebautes Image verwenden und den build-Block entfernen:
     # image: ghcr.io/<owner>/jama-mcp:1.0.0
     restart: unless-stopped
+    logging: *logging
 
     # Kein ports: — Traefik erreicht den Dienst ueber das gemeinsame Docker-Netz.
     expose:

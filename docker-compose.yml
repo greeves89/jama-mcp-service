@@ -5,10 +5,21 @@
 # Port-Mapping. Persistente Daten liegen in einem benannten Volume, damit
 # Container jederzeit neu gebaut werden koennen, ohne Daten zu verlieren.
 
+# Begrenzung der Containerlogs: fuenf Dateien zu je 20 MB, also hoechstens
+# 100 MB je Container. Ohne diese Angabe waechst die JSON-Datei des
+# Docker-Logtreibers unbegrenzt weiter und fuellt irgendwann die Platte —
+# Docker raeumt dort von sich aus nichts auf.
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    logging: *logging
     ports:
       - "${NGINX_PORT:-8081}:80"
     volumes:
@@ -28,6 +39,7 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *logging
     # Kein ports: — erreichbar nur ueber nginx im internen Netz.
     expose:
       - "8080"
@@ -63,6 +75,7 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     # Bewusst kein Port-Mapping: die Datenbank ist nie von aussen erreichbar.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-jama_mcp}

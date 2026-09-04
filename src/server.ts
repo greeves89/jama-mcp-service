@@ -32,6 +32,11 @@ export async function createServer() {
   const config = getConfig();
 
   const app = Fastify({
+    // Fastifys eigenes Request-Logging bleibt aus: es schreibt zwei Zeilen pro
+    // Anfrage, auch fuer jede Datei des Dashboards, und ertraenkt damit genau
+    // das, was man im Betrieb sucht. Stattdessen protokolliert der Hook weiter
+    // unten gezielt jede Antwort ab Status 400 — und bei LOG_LEVEL=debug
+    // zusaetzlich die erfolgreichen.
     logger: false,
     // Hinter nginx: die echte Client-Adresse steht in X-Forwarded-For und wird
     // fuer die Anmeldesperre gebraucht.
@@ -40,6 +45,38 @@ export async function createServer() {
   });
 
   await app.register(cookie, { secret: config.SESSION_SECRET });
+
+  /**
+   * Jede fehlerhafte Antwort wird sichtbar.
+   *
+   * Vorher blieb der Betrieb blind: Ein fehlgeschlagener Verbindungstest, eine
+   * abgewiesene Anmeldung oder ein 500er tauchten in "docker logs" nirgends
+   * auf, weil die Admin-API ihre Fehler ausschliesslich an den Browser
+   * schickte. Wer nur das Containerlog hatte, sah einen stillen Dienst und
+   * keinen Hinweis auf die Ursache.
+   *
+   * Ab Status 500 wird als Fehler protokolliert, 4xx als Warnung: das eine ist
+   * unser Problem, das andere in aller Regel eine Fehlbedienung oder ein
+   * abgelehnter Zugriff.
+   */
+  app.addHook('onResponse', async (request, reply) => {
+    const status = reply.statusCode;
+    const daten = {
+      methode: request.method,
+      pfad: request.url,
+      status,
+      dauerMs: Math.round(reply.elapsedTime),
+      ip: request.ip,
+    };
+
+    if (status >= 500) {
+      logger.error(daten, 'Anfrage fehlgeschlagen');
+    } else if (status >= 400) {
+      logger.warn(daten, 'Anfrage abgewiesen');
+    } else {
+      logger.debug(daten, 'Anfrage beantwortet');
+    }
+  });
 
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');

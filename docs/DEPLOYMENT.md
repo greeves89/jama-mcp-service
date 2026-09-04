@@ -161,7 +161,7 @@ Im selben Dialog unter **Environment variables**:
 | `NGINX_PORT` | `8081` | Externer Port, falls 8081 belegt ist |
 | `JAMA_RATE_LIMIT_RPS` | `6` | Anfragen pro Sekunde gegen Jama. Jama drosselt bei 10 für die **gesamte** Instanz — der Standard lässt bewusst Luft für andere Integrationen |
 | `GLOBAL_READ_ONLY` | `false` | Auf `true` setzen, um von Anfang an jeden Schreibzugriff zu sperren |
-| `LOG_LEVEL` | `info` | `debug` zur Fehlersuche |
+| `LOG_LEVEL` | `info` | Auf `info` erscheinen alle abgewiesenen und fehlgeschlagenen Anfragen mit Grund, dazu fehlgeschlagene Verbindungstests und Tool-Aufrufe. `debug` protokolliert zusätzlich jede erfolgreiche Anfrage — nützlich zur Fehlersuche, im Dauerbetrieb zu geschwätzig. |
 
 Dann **Deploy the stack**.
 
@@ -240,3 +240,53 @@ Mindestens erforderlich, bevor der Dienst öffentlich erreichbar wird:
 
 Für den reinen Test im Heimnetz oder Firmen-LAN ist der Stack so, wie er ist,
 in Ordnung.
+
+
+## Logs
+
+Der Dienst schreibt strukturiert nach stdout, wie es bei Containern üblich ist.
+Ausgelesen wird also über Docker:
+
+```bash
+docker compose logs -f app          # laufend mitlesen
+docker compose logs --tail 200 app  # letzte 200 Zeilen
+```
+
+Was auf der Standardstufe `info` erscheint:
+
+- jede Anfrage ab Status 400, mit Methode, Pfad, Status, Dauer und Client-Adresse
+- der Grund dazu (Fehlercode und Klartextmeldung)
+- fehlgeschlagene Verbindungstests samt Meldung von Jama — diese antworten mit
+  HTTP 200, weil der Test technisch durchlief, und wären sonst unsichtbar
+- fehlgeschlagene Tool-Aufrufe mit Fehlercode und redigierten Argumenten
+- Start, Migrationen, Wartungslauf und geordnetes Beenden
+
+Erfolgreiche Anfragen werden bewusst nicht protokolliert: Das Dashboard erzeugt
+pro Seitenaufruf ein Vielfaches an Anfragen und würde alles Übrige verdecken.
+Wer sie braucht, setzt `LOG_LEVEL=debug`.
+
+Zugangsdaten, Tokens, Cookies und PINs werden vor der Ausgabe ersetzt; Inhalte
+aus Jama-Items landen grundsätzlich nicht im Log.
+
+### Größe
+
+Die Logdateien sind je Container auf **fünf Dateien zu je 20 MB begrenzt**, also
+höchstens 100 MB. Ist die Grenze erreicht, wird die älteste Datei verworfen.
+Ohne diese Angabe wächst die JSON-Datei des Docker-Logtreibers unbegrenzt —
+Docker räumt dort von sich aus nichts auf, und auf kleinen Maschinen läuft
+darüber irgendwann die Platte voll.
+
+Die Werte stehen in den Compose-Dateien unter `x-logging` und gelten über einen
+YAML-Anker für alle Dienste. Zum Ändern genügt die eine Stelle:
+
+```yaml
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+```
+
+Bereits laufende Container übernehmen die Änderung erst nach einem Neuaufbau
+(`docker compose up -d`), weil der Logtreiber beim Erzeugen des Containers
+festgelegt wird.

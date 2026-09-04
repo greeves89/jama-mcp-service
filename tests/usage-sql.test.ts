@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest';
+// Statisch geladen, nicht in den Testfunktionen: der erste Import von drizzle
+// kostet knapp zwei Sekunden und brachte den Test sonst gelegentlich ueber das
+// Zeitlimit — ein Fehlschlag, der nichts mit der geprueften Sache zu tun hat.
+import { sql } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import { usageEvents } from '../src/db/schema.js';
 
 /**
  * Absicherung der Aggregat-Abfragen auf SQL-Ebene.
@@ -14,11 +20,7 @@ import { describe, expect, it } from 'vitest';
  * Sie laufen damit in jedem CI-Lauf mit.
  */
 
-async function baueZeitreihenSql(bucket: 'hour' | 'day'): Promise<string> {
-  const { sql } = await import('drizzle-orm');
-  const { PgDialect } = await import('drizzle-orm/pg-core');
-  const { usageEvents } = await import('../src/db/schema.js');
-
+function baueZeitreihenSql(bucket: 'hour' | 'day'): string {
   const zeitstufe =
     bucket === 'hour'
       ? sql`date_trunc('hour', ${usageEvents.ts})`
@@ -30,16 +32,16 @@ async function baueZeitreihenSql(bucket: 'hour' | 'day'): Promise<string> {
 }
 
 describe('Zeitreihe der Nutzung', () => {
-  it('schreibt die Zeiteinheit als Literal, nicht als Parameter', async () => {
-    const abfrage = await baueZeitreihenSql('day');
+  it('schreibt die Zeiteinheit als Literal, nicht als Parameter', () => {
+    const abfrage = baueZeitreihenSql('day');
 
     expect(abfrage).toContain("date_trunc('day'");
     // Ein Platzhalter an dieser Stelle war die Ursache des Ausfalls.
     expect(abfrage).not.toMatch(/date_trunc\(\$\d/);
   });
 
-  it('nutzt in SELECT und GROUP BY denselben Ausdruck', async () => {
-    const abfrage = await baueZeitreihenSql('day');
+  it('nutzt in SELECT und GROUP BY denselben Ausdruck', () => {
+    const abfrage = baueZeitreihenSql('day');
     const treffer = abfrage.match(/date_trunc\('day', "usage_events"\."ts"\)/g);
 
     // Dreimal: Projektion, Gruppierung, Sortierung. Weichen sie voneinander ab,
@@ -47,15 +49,15 @@ describe('Zeitreihe der Nutzung', () => {
     expect(treffer).toHaveLength(3);
   });
 
-  it('unterscheidet die beiden Zeiteinheiten korrekt', async () => {
-    expect(await baueZeitreihenSql('hour')).toContain("date_trunc('hour'");
-    expect(await baueZeitreihenSql('day')).toContain("date_trunc('day'");
+  it('unterscheidet die beiden Zeiteinheiten korrekt', () => {
+    expect(baueZeitreihenSql('hour')).toContain("date_trunc('hour'");
+    expect(baueZeitreihenSql('day')).toContain("date_trunc('day'");
   });
 
-  it('bindet keinen von aussen bestimmten Text in das SQL ein', async () => {
+  it('bindet keinen von aussen bestimmten Text in das SQL ein', () => {
     // Die Zeiteinheit stammt aus zwei fest ausgeschriebenen Varianten, nicht
     // aus einer Zeichenkettenverknuepfung — deshalb ist das Literal unbedenklich.
-    const abfrage = await baueZeitreihenSql('hour');
+    const abfrage = baueZeitreihenSql('hour');
     expect(abfrage).toMatch(/date_trunc\('(hour|day)', "usage_events"\."ts"\)/);
   });
 });

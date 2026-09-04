@@ -35,6 +35,7 @@ import {
 } from '../service/usage.js';
 import { generateApiKey } from '../shared/crypto.js';
 import { getConfig } from '../shared/config.js';
+import { logger } from '../shared/logger.js';
 import { ServiceError, toServiceError } from '../shared/errors.js';
 import type { AuditIntent } from '../mcp/types.js';
 import { DEFAULT_TOOLSETS, TOOLSET_INFO, TOOLSETS, ensureCore, parseToolsets } from '../shared/toolsets.js';
@@ -95,6 +96,17 @@ function requireCsrf(request: FastifyRequest): void {
 
 function sendError(reply: FastifyReply, error: unknown): FastifyReply {
   const serviceError = toServiceError(error);
+
+  // Der Grund gehoert ins Log, nicht nur in die Antwort an den Browser. Ohne
+  // das sah man im Containerlog bestenfalls einen Statuscode und musste raten,
+  // woran es lag. Ab 500 als Fehler samt Stacktrace, darunter als Warnung.
+  const daten = { code: serviceError.code, status: serviceError.httpStatus };
+  if (serviceError.httpStatus >= 500) {
+    logger.error({ ...daten, err: error }, serviceError.message);
+  } else {
+    logger.warn(daten, serviceError.message);
+  }
+
   return reply
     .status(serviceError.httpStatus)
     .send({ fehler: serviceError.message, code: serviceError.code, details: serviceError.details });
@@ -412,6 +424,26 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         });
 
         const health = await checkConnection(client);
+
+        // Die Route liefert 200, auch wenn Jama die Anmeldung ablehnt: der
+        // Test ist dann fachlich negativ, aber technisch erfolgreich
+        // durchgelaufen. Ohne diesen Eintrag bliebe ein fehlgeschlagener Test
+        // im Containerlog vollstaendig unsichtbar.
+        if (health.ok) {
+          logger.info(
+            { verbindung: connection.name, instanz: connection.baseUrl },
+            'Verbindungstest erfolgreich',
+          );
+        } else {
+          logger.warn(
+            {
+              verbindung: connection.name,
+              instanz: connection.baseUrl,
+              grund: health.message,
+            },
+            'Verbindungstest fehlgeschlagen',
+          );
+        }
 
         await getDb()
           .update(jamaConnections)
