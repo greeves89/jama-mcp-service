@@ -476,6 +476,40 @@ const findTraceGaps = defineTool({
   },
 });
 
+/** Ein Regelwerk, so weit es fuer die Auswahl von Belang ist. */
+export interface Regelwerk {
+  standard: boolean;
+  projekte: number[];
+}
+
+/**
+ * Waehlt die Regelwerke aus, die fuer ein Projekt tatsaechlich gelten.
+ *
+ * Jama wendet nicht alle hinterlegten Regelwerke an, sondern das dem Projekt
+ * zugeordnete — und nur wenn keines zugeordnet ist, das als Standard markierte.
+ * Zuvor wurde ueber saemtliche Regelwerke der Instanz geprueft. Das ergab
+ * Auskuenfte, die in beide Richtungen falsch sein konnten: "nicht zulaessig",
+ * obwohl das Anlegen gelingt, weil die passende Regel in einem fremden
+ * Regelwerk lag; und "zulaessig", obwohl Jama ablehnt, weil die gefundene Regel
+ * fuer ein anderes Projekt gilt. Eine Vorpruefung, die in beide Richtungen irrt,
+ * ist schaedlicher als gar keine: Automatisierungen ueberspringen dann zulaessige
+ * Verknuepfungen oder laufen in vermeidbare Fehler.
+ *
+ * Ohne Projektangabe bleibt es bei allen Regelwerken — dann ist die Frage nicht
+ * "gilt das hier?", sondern "was ist ueberhaupt hinterlegt?".
+ */
+export function regelwerkeFuerProjekt<T extends Regelwerk>(
+  regelwerke: readonly T[],
+  projektId: number | undefined,
+): T[] {
+  if (projektId === undefined) return [...regelwerke];
+
+  const zugeordnet = regelwerke.filter((regelwerk) => regelwerk.projekte.includes(projektId));
+  if (zugeordnet.length > 0) return zugeordnet;
+
+  return regelwerke.filter((regelwerk) => regelwerk.standard);
+}
+
 const checkRelationshipRules = defineTool({
   name: 'jama_check_relationship_rules',
   toolset: 'trace',
@@ -507,7 +541,8 @@ const checkRelationshipRules = defineTool({
     const aufbereitet = ruleSets.map((ruleSet) => ({
       id: ruleSet.id,
       name: ruleSet.name,
-      standard: ruleSet.isDefault,
+      standard: ruleSet.isDefault === true,
+      projekte: ruleSet.projects ?? [],
       regeln: (ruleSet.rules ?? []).map((rule) => ({
         von: typeName(rule.fromItemType),
         nach: typeName(rule.toItemType),
@@ -518,7 +553,12 @@ const checkRelationshipRules = defineTool({
       })),
     }));
 
+    const geltendeRegelwerke = (projektId: number | undefined) =>
+      regelwerkeFuerProjekt(aufbereitet, projektId);
+
     let trockenlauf;
+    let hinweisRegelwerk: string | undefined;
+
     if (args.fromItemId !== undefined && args.toItemId !== undefined) {
       const [from, to] = await Promise.all([
         context.client.http.getOptional<JamaItem>(`items/${args.fromItemId}`),
@@ -534,33 +574,66 @@ const checkRelationshipRules = defineTool({
       assertProjectAllowed(from.project, context);
       assertProjectAllowed(to.project, context);
 
-      const passende = aufbereitet.flatMap((ruleSet) =>
-        ruleSet.regeln.filter(
-          (rule) => rule.von === typeName(from.itemType) && rule.nach === typeName(to.itemType),
-        ),
+      // Massgeblich ist das Projekt der Quelle: dort entsteht die Beziehung.
+      const massgeblich = geltendeRegelwerke(from.project);
+
+      if (from.project !== to.project) {
+        hinweisRegelwerk =
+          'Die beiden Items liegen in verschiedenen Projekten. Geprueft wurde gegen das Regelwerk des Quellprojekts; bei projektuebergreifenden Beziehungen kann Jama zusaetzliche Einschraenkungen anwenden.';
+      }
+
+      const passende = massgeblich.flatMap((ruleSet) =>
+        ruleSet.regeln
+          .filter(
+            (rule) => rule.von === typeName(from.itemType) && rule.nach === typeName(to.itemType),
+          )
+          .map((rule) => ({ ...rule, regelwerk: ruleSet.name ?? String(ruleSet.id) })),
       );
 
       trockenlauf = {
         von: { id: from.id, documentKey: from.documentKey, itemType: typeName(from.itemType) },
         nach: { id: to.id, documentKey: to.documentKey, itemType: typeName(to.itemType) },
-        zulaessig: passende.length > 0,
+        // Ohne geltendes Regelwerk schraenkt Jama nicht ein — dann ist alles
+        // erlaubt, und ein "nicht zulaessig" waere schlicht falsch.
+        zulaessig: massgeblich.length === 0 ? true : passende.length > 0,
+        geprueftGegen:
+          massgeblich.length === 0
+            ? 'kein geltendes Regelwerk'
+            : massgeblich.map((ruleSet) => ruleSet.name ?? String(ruleSet.id)).join(', '),
         passendeRegeln: passende,
       };
     }
 
+    const hinweise: string[] = [];
+    if (ruleSets.length === 0) {
+      hinweise.push(
+        'Es sind keine Regelwerke hinterlegt. Dann laesst Jama grundsaetzlich jede Verknuepfung zu.',
+      );
+    } else if (trockenlauf?.zulaessig === false) {
+      hinweise.push(
+        `Im geltenden Regelwerk (${trockenlauf.geprueftGegen}) gibt es fuer diese Kombination aus ItemTypes keine Regel. Ein Anlegen der Beziehung wuerde vermutlich mit einem 400 scheitern.`,
+      );
+    } else if (trockenlauf?.geprueftGegen === 'kein geltendes Regelwerk') {
+      hinweise.push(
+        'Diesem Projekt ist kein Regelwerk zugeordnet und es gibt kein Standardregelwerk. Jama schraenkt die Verknuepfung dann nicht ein.',
+      );
+    }
+    if (hinweisRegelwerk) hinweise.push(hinweisRegelwerk);
+
+    // Nur die tatsaechlich geltenden Regelwerke ausgeben, wenn ein Projekt
+    // benannt ist. Die vollstaendige Liste der Instanz beantwortet eine andere
+    // Frage und verstellt den Blick auf das, was hier gilt.
+    const auszugeben =
+      args.projectId !== undefined ? geltendeRegelwerke(args.projectId) : aufbereitet;
+
     return {
-      data: { regelwerke: aufbereitet, trockenlauf },
+      data: {
+        regelwerke: auszugeben,
+        regelwerkeGesamt: aufbereitet.length,
+        trockenlauf,
+      },
       projectId: args.projectId,
-      notes:
-        ruleSets.length === 0
-          ? [
-              'Es sind keine Regelwerke hinterlegt. Dann laesst Jama grundsaetzlich jede Verknuepfung zu.',
-            ]
-          : trockenlauf?.zulaessig === false
-            ? [
-                'Fuer diese Kombination aus ItemTypes ist keine Regel hinterlegt. Ein Anlegen der Beziehung wuerde vermutlich mit einem 400 scheitern.',
-              ]
-            : undefined,
+      notes: hinweise.length > 0 ? hinweise : undefined,
     };
   },
 });

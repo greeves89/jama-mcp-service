@@ -464,6 +464,12 @@ const bulkCreateItems = defineTool({
       .min(1)
       .max(100)
       .describe('Liste von Feldwert-Objekten, jeweils mindestens mit "name".'),
+    mitDocumentKeys: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Laedt nach der Anlage die Document Keys der neuen Items nach ("PRJ-REQ-42"). Kostet einen zusaetzlichen Jama-Aufruf je Item, weil Jama beim Anlegen nur die numerische ID zurueckgibt und keine Sammelabfrage anbietet. Fuer Verknuepfungen genuegt die ohnehin gelieferte ID; die Keys sind fuer die Rueckmeldung an Menschen gedacht.',
+      ),
     dryRun: z
       .boolean()
       .default(true)
@@ -473,7 +479,8 @@ const bulkCreateItems = defineTool({
   handler: async (args, context) => {
     assertProjectAllowed(args.projectId, context);
 
-    const angelegt: Array<{ index: number; id?: number; name?: unknown }> = [];
+    const angelegt: Array<{ index: number; id?: number; name?: unknown; documentKey?: string }> =
+      [];
     const fehlgeschlagen: Array<{ index: number; name?: unknown; fehler: string }> = [];
     const warnungen = new Set<string>();
 
@@ -512,6 +519,24 @@ const bulkCreateItems = defineTool({
           name: resolved.name,
           fehler: error instanceof Error ? error.message : String(error),
         });
+      }
+    }
+
+    // Jama liefert beim Anlegen nur die numerische ID. Der Document Key entsteht
+    // serverseitig und ist nur ueber einen erneuten Abruf zu bekommen — je Item
+    // einzeln, weil Jama keine Sammelabfrage anbietet. Deshalb nur auf
+    // ausdruecklichen Wunsch: bei fuenfzig Items verdoppelt es die Zahl der
+    // Aufrufe und damit die Zeit bis zum Ergebnis.
+    if (args.mitDocumentKeys && !args.dryRun) {
+      for (const eintrag of angelegt) {
+        if (eintrag.id === undefined) continue;
+        try {
+          const item = await context.client.http.getOptional<JamaItem>(`items/${eintrag.id}`);
+          if (item?.documentKey) eintrag.documentKey = item.documentKey;
+        } catch {
+          // Ein fehlender Key darf die gerade erfolgte Anlage nicht in Frage
+          // stellen — die Items existieren, nur die Beschriftung fehlt.
+        }
       }
     }
 

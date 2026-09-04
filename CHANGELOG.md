@@ -4,6 +4,35 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.8.0] — 2026-09-04
+
+Aufarbeitung eines Rueckmeldeprotokolls aus dem Betrieb. Nicht jeder Punkt darin
+traf zu; die geprueften und bestaetigten sind hier behoben.
+
+### Behoben
+- **Die Beziehungspruefung gab falsche Auskuenfte — in beide Richtungen.** Sie
+  durchsuchte saemtliche Regelwerke der Instanz, obwohl Jama nur das dem Projekt
+  zugeordnete anwendet und ersatzweise das als Standard markierte. Dadurch
+  meldete sie "nicht zulaessig", obwohl das Anlegen gelang (die passende Regel
+  lag in einem fremden Regelwerk), und "zulaessig", obwohl Jama ablehnte (die
+  gefundene Regel galt fuer ein anderes Projekt). Eine Vorpruefung, die in beide
+  Richtungen irrt, ist schaedlicher als gar keine. Die Antwort nennt jetzt
+  ausserdem, gegen welches Regelwerk geprueft wurde, und weist auf
+  projektuebergreifende Beziehungen hin.
+- Ist einem Projekt kein Regelwerk zugeordnet und existiert kein Standardwerk,
+  gilt die Verknuepfung als zulaessig — Jama schraenkt dann nicht ein. Zuvor
+  wurde in diesem Fall faelschlich abgeraten.
+
+### Hinzugefuegt
+- `jama_bulk_create_items` liefert auf Wunsch die Document Keys der neuen Items
+  (`mitDocumentKeys`). Bewusst abschaltbar und standardmaessig aus: Jama gibt
+  beim Anlegen nur die numerische ID zurueck und bietet keine Sammelabfrage, das
+  Nachladen kostet also einen Aufruf je Item.
+- `jama_get_project_schema` weist darauf hin, wenn die Antwort durch ihren
+  Umfang gekuerzt werden koennte, und nennt die Typschluessel zum gezielten
+  Nachfragen. Der Hinweis steht in den Anmerkungen und ueberlebt damit die
+  Kuerzung — ein Nachsatz am Ende waere mit weggeschnitten worden.
+
 ## [1.7.0] — 2026-09-04
 
 ### Behoben

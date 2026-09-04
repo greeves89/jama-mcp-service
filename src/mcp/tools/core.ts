@@ -196,6 +196,26 @@ const getProjectSchema = defineTool({
 
     const relationshipTypes = await context.client.schema.getRelationshipTypes();
 
+    const hinweise = [
+      'Felder mit readOnly: true koennen nicht geschrieben werden. Bei Picklist-Feldern die Werte aus "options" verwenden — der Service loest sie beim Schreiben selbst auf die internen IDs auf.',
+    ];
+
+    // Bei vielen Typen reicht das Antwortbudget nicht, und die Beschreibung
+    // wird am Ende abgeschnitten — ausgerechnet dort, wo die Feldnamen stehen,
+    // ohne die kein Schreibvorgang gelingt. Der Hinweis steht in den notes und
+    // damit vor den Daten: Er ueberlebt die Kuerzung, waehrend ein Nachsatz am
+    // Ende mit weggeschnitten wuerde.
+    if (!args.itemTypeKeys && described.length > 3) {
+      hinweise.push(
+        `Diese Antwort beschreibt ${described.length} ItemTypes vollstaendig und wird deshalb moeglicherweise gekuerzt — erkennbar an "[gekuerzt: ...]" am Ende. Fehlen Felder, den Aufruf mit itemTypeKeys auf die benoetigten Typen einschraenken, etwa itemTypeKeys: ["${
+          described[0]?.key ?? described[0]?.name ?? 'RQ'
+        }"]. Verfuegbar sind: ${described
+          .map((typ) => typ.key ?? typ.name)
+          .filter(Boolean)
+          .join(', ')}.`,
+      );
+    }
+
     return {
       data: {
         itemTypes: described,
@@ -208,9 +228,7 @@ const getProjectSchema = defineTool({
         })),
       },
       projectId: args.projectId,
-      notes: [
-        'Felder mit readOnly: true koennen nicht geschrieben werden. Bei Picklist-Feldern die Werte aus "options" verwenden — der Service loest sie beim Schreiben selbst auf die internen IDs auf.',
-      ],
+      notes: hinweise,
     };
   },
 });
