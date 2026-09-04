@@ -38,9 +38,26 @@ export async function createServer() {
     // unten gezielt jede Antwort ab Status 400 — und bei LOG_LEVEL=debug
     // zusaetzlich die erfolgreichen.
     logger: false,
-    // Hinter nginx: die echte Client-Adresse steht in X-Forwarded-For und wird
-    // fuer die Anmeldesperre gebraucht.
-    trustProxy: true,
+    // Hinter nginx oder Traefik: die echte Client-Adresse steht in
+    // X-Forwarded-For und wird fuer die Anmeldesperre gebraucht.
+    //
+    // Nicht "true": Dann vertraut Fastify dem vollstaendigen Header und nimmt
+    // dessen linkesten Eintrag — den ein Angreifer selbst mitschicken kann. Er
+    // koennte sich fuer jeden Rateversuch eine neue Adresse ausdenken und die
+    // Anmeldesperre damit aushebeln.
+    //
+    // Und ausdruecklich eine FUNKTION, nicht die blosse Zahl: Fastify wertet
+    // eine Zahl nicht als Hop-Zaehler aus, sondern verwirft sie und traut dann
+    // gar keinem Eintrag mehr (lib/request.js). Die Folge waere kein
+    // Sicherheitsloch, aber ein stiller Ausfall — request.ip lieferte immer die
+    // Docker-Adresse des Proxys, alle Anwender landeten in einem gemeinsamen
+    // Sperr-Topf, und ein einziger Fehlversuch sperrte alle Admins aus.
+    // tests/trust-proxy.test.ts haelt das fest, damit ein spaeteres
+    // "Vereinfachen" zur Zahl auffaellt.
+    //
+    // Fastify geht die Adressen von rechts durch und fragt fuer jede, ob ihr zu
+    // trauen ist. Die ersten TRUST_PROXY_HOPS stammen von den eigenen Proxys.
+    trustProxy: (_adresse: string, sprung: number) => sprung < config.TRUST_PROXY_HOPS,
     bodyLimit: 20 * 1024 * 1024,
   });
 

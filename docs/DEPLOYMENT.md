@@ -161,6 +161,7 @@ Im selben Dialog unter **Environment variables**:
 | `NGINX_PORT` | `8081` | Externer Port, falls 8081 belegt ist |
 | `JAMA_RATE_LIMIT_RPS` | `6` | Anfragen pro Sekunde gegen Jama. Jama drosselt bei 10 für die **gesamte** Instanz — der Standard lässt bewusst Luft für andere Integrationen |
 | `GLOBAL_READ_ONLY` | `false` | Auf `true` setzen, um von Anfang an jeden Schreibzugriff zu sperren |
+| `TRUST_PROXY_HOPS` | `1` | Anzahl der Proxys vor dem Dienst. Aus dieser Zahl leitet sich ab, welchem Teil von `X-Forwarded-For` zu trauen ist — und damit die Client-Adresse, auf der die Anmeldesperre beruht. `1` passt für genau einen nginx oder Traefik davor. Steht zusätzlich ein CDN davor, erhöhen; ein zu hoher Wert erlaubt es, die Sperre mit einer erfundenen Adresse zu umgehen, ein zu niedriger sperrt alle Benutzer gemeinsam aus. |
 | `LOG_LEVEL` | `info` | Auf `info` erscheinen alle abgewiesenen und fehlgeschlagenen Anfragen mit Grund, dazu fehlgeschlagene Verbindungstests und Tool-Aufrufe. `debug` protokolliert zusätzlich jede erfolgreiche Anfrage — nützlich zur Fehlersuche, im Dauerbetrieb zu geschwätzig. |
 
 Dann **Deploy the stack**.
@@ -290,3 +291,39 @@ x-logging: &logging
 Bereits laufende Container übernehmen die Änderung erst nach einem Neuaufbau
 (`docker compose up -d`), weil der Logtreiber beim Erzeugen des Containers
 festgelegt wird.
+
+
+## Client-Adresse hinter dem Reverse-Proxy
+
+Die Anmeldesperre des Dashboards zählt Fehlversuche pro Client-Adresse. Diese
+Adresse stammt aus `X-Forwarded-For` — also aus einem Header, den grundsätzlich
+auch der Client selbst mitschicken kann. Zwei Dinge müssen deshalb stimmen,
+sonst lässt sich die Sperre mit einer erfundenen Adresse umgehen.
+
+**1. Der Proxy muss den Header setzen, nicht anhängen.**
+
+Der mitgelieferte nginx tut das bereits (`proxy_set_header X-Forwarded-For
+$remote_addr` in `nginx/proxy_params_jama.conf`). Wer die Traefik-Variante
+nutzt, bindet ein **bereits vorhandenes** Traefik ein, das dieses Repository
+nicht konfiguriert — dort ist selbst zu prüfen:
+
+- `forwardedHeaders.insecure` darf **nicht** gesetzt sein
+- `forwardedHeaders.trustedIPs` darf nur die eigenen vorgelagerten Proxys
+  enthalten, nicht etwa `0.0.0.0/0`
+
+Andernfalls reicht Traefik einen vom Client gesetzten `X-Forwarded-For`
+unverändert durch, und die Lücke besteht eine Ebene weiter außen fort.
+
+**2. `TRUST_PROXY_HOPS` muss zur Anzahl der Proxys passen.**
+
+Standard ist `1` und damit richtig für genau einen nginx oder ein Traefik vor
+dem Dienst. Steht zusätzlich ein CDN oder ein weiterer Load Balancer davor,
+entsprechend erhöhen. Ein zu hoher Wert macht die Sperre umgehbar, ein zu
+niedriger lässt alle Anfragen von derselben Adresse kommen — dann sperrt ein
+einziger Fehlversuch alle Benutzer gemeinsam aus.
+
+> **Der Anwendungs-Port darf niemals direkt nach außen gemappt werden.** Beide
+> Compose-Dateien nutzen dafür ausschließlich `expose:`. Wird zum Debuggen ein
+> `ports: ["8080:8080"]` ergänzt, kann sich jeder direkt verbindende Client
+> selbst als der eine vertraute Proxy ausgeben und eine beliebige Adresse
+> einschleusen — die gesamte Absicherung oben ist dann wirkungslos.

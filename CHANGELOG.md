@@ -4,6 +4,38 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.5.1] — 2026-09-04
+
+### Sicherheit
+- **Die Anmeldesperre liess sich ueber einen gefaelschten `X-Forwarded-For`
+  umgehen.** Sie zaehlt Fehlversuche pro Client-Adresse; diese Adresse stammte
+  aus einem Header, den der Client selbst mitschicken kann. nginx haengte einen
+  mitgeschickten Wert an, statt ihn zu ersetzen, und Fastify vertraute mit
+  `trustProxy: true` der ganzen Kette und nahm deren linkesten — also den vom
+  Angreifer gesetzten — Eintrag. Damit war die PIN unbegrenzt zu raten. Behoben
+  an beiden Enden: nginx setzt den Header jetzt auf `$remote_addr`, und Fastify
+  vertraut nur der ueber `TRUST_PROXY_HOPS` angegebenen Anzahl eigener Proxys.
+- Drei Schwachstellen in Produktiv-Abhaengigkeiten behoben: `fast-uri` (hoch,
+  SSRF und Host-Confusion), `fastify` (mittel, ebendieses
+  X-Forwarded-Spoofing sowie ein Schema-Bypass) und `qs` (mittel, DoS). Alles
+  Patch-Level, keine Breaking Changes.
+- Das Abmelden verlangt nun ebenfalls den CSRF-Nachweis — der Schaden waere
+  gering, aber alle veraendernden Routen folgen jetzt demselben Muster.
+
+### Behoben
+- Ein Kommentar behauptete, Fastify werte eine Zahl bei `trustProxy` als
+  Hop-Zaehler aus. Das trifft nicht zu: Fastify verwirft sie und traut dann gar
+  keinem Eintrag mehr, womit `request.ip` immer die Adresse des Proxys liefert
+  und ein einziger Fehlversuch alle Anwender gemeinsam aussperrt. Ein Test haelt
+  dieses Verhalten fest, damit ein spaeteres Vereinfachen zur Zahl auffaellt.
+
+### Hinzugefuegt
+- `TRUST_PROXY_HOPS` (Standard 1) samt Erlaeuterung beider Fehlerrichtungen.
+- Abschnitt in der Deployment-Anleitung zur Client-Adresse hinter dem Proxy,
+  mit dem Hinweis, dass ein bereits vorhandenes Traefik `X-Forwarded-For` selbst
+  ueberschreiben muss, und der Invariante, dass der Anwendungs-Port niemals
+  direkt nach aussen gemappt werden darf.
+
 ## [1.5.0] — 2026-09-04
 
 ### Behoben

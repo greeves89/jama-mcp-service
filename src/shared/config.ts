@@ -33,6 +33,28 @@ const schema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:8081'),
 
+  /**
+   * Anzahl der Proxys vor diesem Dienst.
+   *
+   * Die Anmeldesperre zaehlt Fehlversuche pro Client-Adresse, und diese Adresse
+   * stammt aus X-Forwarded-For. Wuerde dem gesamten Header vertraut, koennte
+   * ein Angreifer eine beliebige Adresse voranstellen und sich fuer jeden
+   * Rateversuch eine neue ausdenken — die Sperre liefe ins Leere. Mit einer
+   * festen Zahl wertet Fastify nur die Eintraege aus, die die eigenen Proxys
+   * angehaengt haben.
+   *
+   * 1 ist der Normalfall (ein nginx oder ein Traefik davor). Steht zusaetzlich
+   * ein CDN oder ein weiterer Proxy davor, entsprechend erhoehen — sonst sehen
+   * alle Anfragen wie von derselben Adresse aus.
+   *
+   * Vorausgesetzt ist dabei, dass der Dienst NUR ueber den Proxy erreichbar ist.
+   * Beide Compose-Dateien nutzen dafuer ausschliesslich "expose". Wuerde der
+   * Port direkt nach aussen gemappt, koennte sich jeder direkt verbindende
+   * Client selbst als der eine vertraute Proxy ausgeben — die Einstellung hier
+   * waere dann wirkungslos.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(1),
+
   DATABASE_URL: z.string().min(1, 'DATABASE_URL fehlt'),
 
   ENCRYPTION_KEY: base64Key32,

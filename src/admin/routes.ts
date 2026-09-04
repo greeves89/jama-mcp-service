@@ -190,6 +190,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/admin/api/logout', async (request, reply) => {
+    // Auch das Abmelden verlangt den CSRF-Nachweis. Der Schaden waere gering —
+    // ein erzwungenes Abmelden, kein Datenzugriff —, aber die Pruefung kostet
+    // nichts und haelt das Muster ueber alle veraendernden Routen einheitlich.
+    try {
+      requireCsrf(request);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+
     await logout(request.cookies[SESSION_COOKIE]);
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     reply.clearCookie(CSRF_COOKIE, { path: '/' });
