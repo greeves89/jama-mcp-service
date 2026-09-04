@@ -6,6 +6,7 @@ import type { AuditIntent, ToolContext, ToolDefinition, ToolResult } from './typ
 import { estimateTokens, truncateText } from '../shared/tokens.js';
 import { toServiceError } from '../shared/errors.js';
 import { logger } from '../shared/logger.js';
+import { VERSION } from '../shared/version.js';
 import { TOOLSET_INFO } from '../shared/toolsets.js';
 
 /**
@@ -41,7 +42,9 @@ export interface McpServerHooks {
 }
 
 export const SERVER_NAME = 'jama-mcp';
-export const SERVER_VERSION = '1.0.0';
+// Was MCP-Clients beim Verbindungsaufbau als Server-Version sehen. Kommt aus
+// derselben Quelle wie der Health-Endpunkt, damit beide nie auseinanderlaufen.
+export const SERVER_VERSION = VERSION;
 
 export function buildMcpServer(context: ToolContext, hooks: McpServerHooks = {}): McpServer {
   const server = new McpServer(

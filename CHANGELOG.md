@@ -4,6 +4,18 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.5.2] — 2026-09-04
+
+### Behoben
+- **Der Health-Endpunkt meldete nach jedem Update weiter "1.0.0".** Er las
+  `process.env.npm_package_version`, und diese Variable setzt nur npm selbst —
+  im Container startet der Dienst aber direkt als `node dist/server.js`, sodass
+  dauerhaft der Ersatzwert griff. Damit war die uebliche Kontrolle nach einem
+  Deployment ("steht dort die neue Version?") wertlos, und ein nicht
+  eingespieltes Update waere niemandem aufgefallen. Dieselbe Zahl stand
+  ausserdem fest verdrahtet in der Server-Kennung, die MCP-Clients beim
+  Verbindungsaufbau sehen. Beide lesen nun aus der package.json.
+
 ## [1.5.1] — 2026-09-04
 
 ### Sicherheit

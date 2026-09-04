@@ -14,6 +14,7 @@ import { pruneUsage } from './service/usage.js';
 import { jamaCache } from './jama/cache.js';
 import { getConfig } from './shared/config.js';
 import { logger } from './shared/logger.js';
+import { VERSION } from './shared/version.js';
 import { allTools } from './mcp/registry.js';
 
 /**
@@ -117,7 +118,7 @@ export async function createServer() {
       datenbank,
       tools: allTools.length,
       nurLesend: settings?.globalReadOnly ?? null,
-      version: process.env.npm_package_version ?? '1.0.0',
+      version: VERSION,
     });
   });
 
