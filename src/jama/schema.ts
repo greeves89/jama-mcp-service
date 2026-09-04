@@ -27,6 +27,16 @@ export class SchemaResolver {
     private readonly connectionId: string,
   ) {}
 
+  /**
+   * Adresse der Jama-Instanz, ohne abschliessenden Schraegstrich.
+   *
+   * Wird gebraucht, um Verweise auf Items zu bilden. Der Umweg ueber diesen
+   * Zugriff erspart es, die Adresse durch zwanzig Aufrufstellen zu reichen.
+   */
+  get instanzUrl(): string {
+    return this.http.baseUrl;
+  }
+
   private async cached<T>(parts: (string | number)[], ttl: number, load: () => Promise<T>): Promise<T> {
     const key = cacheKey(this.connectionId, ...parts);
     const { value, cached } = await jamaCache.getOrLoad(key, ttl, load);

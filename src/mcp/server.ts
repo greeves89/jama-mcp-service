@@ -77,6 +77,7 @@ function buildInstructions(context: ToolContext): string {
     'Zugang zu Jama Connect, dem Werkzeug fuer Anforderungs-, Test- und Nachweismanagement.',
     '',
     'Arbeitsregeln:',
+    '- Verweise auf Items niemals selbst zusammensetzen. Jedes Item bringt seine Adresse im Feld "url" mit; diese unveraendert verwenden. Eine aus dem Document Key gebaute Adresse fuehrt ins Leere, weil Jama die numerische ID erwartet.',
     '- Ist nur ein Projektname oder ein Projektkuerzel bekannt (etwa "Werk Musterstadt" oder "PRJ-1234"), zuerst jama_list_projects mit contains aufrufen. Das liefert die numerische Projekt-ID, die alle uebrigen Tools verlangen. Niemals den Anwender nach einer Projekt-ID fragen, ohne vorher so gesucht zu haben.',
     '- Eine Kennung wie "PRJ-1234" ist in aller Regel ein Projektkuerzel, kein Document Key. Document Keys nennen zusaetzlich den Item-Typ, etwa "PRJ-REQ-42". Bei Unklarheit zuerst in den Projekten suchen, nicht in den Items.',
     '- Vor dem Anlegen oder Aendern von Items immer zuerst jama_get_project_schema aufrufen. Feldnamen und zulaessige Picklist-Werte lassen sich nicht erraten; Custom Fields tragen ein Suffix wie "priority$32".',

@@ -4,6 +4,22 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.10.0] — 2026-09-04
+
+### Behoben
+- **Verweise auf Items fuehrten ins Leere.** Kein Tool lieferte eine Adresse,
+  also stellte das Sprachmodell sie selbst zusammen und riet dabei — mit dem
+  Document Key statt der numerischen ID, ohne Projektangabe oder in einer Form
+  aus einer anderen Instanz. Die Links sahen brauchbar aus und funktionierten
+  nicht. Jedes Item bringt jetzt seine Adresse im Feld `url` mit, gebildet nach
+  dem von Jama erwarteten Muster
+  `<instanz>/perspective.req#/items/<id>?projectId=<projekt>`.
+- Auch die Anlage-Tools geben den Verweis zurueck: `jama_create_item`,
+  `jama_create_container` und `jama_bulk_create_items`. Gerade dort wird er
+  gebraucht, weil frisch angelegte Items sonst erst gesucht werden muessten.
+- Die Server-Instructions weisen ausdruecklich darauf hin, das Feld `url` zu
+  verwenden und keine Adresse selbst zu bilden.
+
 ## [1.9.0] — 2026-09-04
 
 ### Hinzugefuegt

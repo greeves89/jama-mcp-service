@@ -21,6 +21,8 @@ export interface ItemSummary {
   project?: number;
   modifiedDate?: string;
   sequence?: string;
+  /** Verweis auf das Item in der Jama-Oberflaeche. */
+  url?: string;
 }
 
 export interface ItemDetail extends ItemSummary {
@@ -76,6 +78,31 @@ export interface MappingContext {
   optionLabels: Map<number, string>;
   userLabels: Map<number, string>;
   itemTypeLabels: Map<number, string>;
+  /** Adresse der Instanz, um Verweise auf Items zu bilden. */
+  baseUrl: string;
+}
+
+/**
+ * Baut den Verweis, unter dem ein Item in der Jama-Oberflaeche zu finden ist.
+ *
+ * Ohne diese Angabe stellt ein Sprachmodell die Adresse selbst zusammen und
+ * raet dabei — mit Document Key statt der numerischen ID, ohne die
+ * Projektangabe oder in einer Form, die es aus einer anderen Instanz kennt. Die
+ * entstehenden Verweise sehen brauchbar aus und fuehren ins Leere.
+ *
+ * Jama erwartet die numerische API-ID im Fragment und die Projekt-ID als
+ * Parameter. Der Document Key taugt dafuer nicht.
+ */
+export function itemUrl(
+  baseUrl: string,
+  itemId: number,
+  projectId: number | undefined,
+): string | undefined {
+  if (!baseUrl) return undefined;
+
+  const basis = baseUrl.replace(/\/+$/, '');
+  const projekt = projectId === undefined ? '' : `?projectId=${projectId}`;
+  return `${basis}/perspective.req#/items/${itemId}${projekt}`;
 }
 
 export async function buildMappingContext(
@@ -93,7 +120,7 @@ export async function buildMappingContext(
     itemTypeLabels.set(type.id, type.display ?? type.typeKey ?? `Typ ${type.id}`);
   }
 
-  return { schema, optionLabels, userLabels, itemTypeLabels };
+  return { schema, optionLabels, userLabels, itemTypeLabels, baseUrl: schema.instanzUrl };
 }
 
 export function toItemSummary(item: JamaItem, context: MappingContext): ItemSummary {
@@ -110,6 +137,7 @@ export function toItemSummary(item: JamaItem, context: MappingContext): ItemSumm
     project: item.project,
     modifiedDate: item.modifiedDate,
     sequence: item.location?.sequence,
+    url: itemUrl(context.baseUrl, item.id, item.project),
   };
 }
 

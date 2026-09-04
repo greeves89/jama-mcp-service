@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CONFIRM_DESCRIPTION, defineTool, type ToolContext, type ToolDefinition } from '../types.js';
 import { assertProjectAllowed } from '../guards.js';
-import { buildMappingContext, collectItemTypeIds, toItemDetail } from '../../jama/mapping.js';
+import { buildMappingContext, collectItemTypeIds, itemUrl, toItemDetail } from '../../jama/mapping.js';
 import { resolveItem } from './core.js';
 import type { JamaItem, JamaItemType } from '../../jama/types.js';
 import { ServiceError } from '../../shared/errors.js';
@@ -274,6 +274,7 @@ const createContainer = defineTool({
         itemTypeId: treffer.id,
         childItemTypeId: kindTypId,
         name: args.name,
+        url: id === undefined ? undefined : itemUrl(context.client.schema.instanzUrl, id, args.projectId),
       },
       projectId: args.projectId,
     };
@@ -492,8 +493,13 @@ const bulkCreateItems = defineTool({
   handler: async (args, context) => {
     assertProjectAllowed(args.projectId, context);
 
-    const angelegt: Array<{ index: number; id?: number; name?: unknown; documentKey?: string }> =
-      [];
+    const angelegt: Array<{
+      index: number;
+      id?: number;
+      name?: unknown;
+      documentKey?: string;
+      url?: string;
+    }> = [];
     const fehlgeschlagen: Array<{ index: number; name?: unknown; fehler: string }> = [];
     const warnungen = new Set<string>();
 
@@ -525,7 +531,14 @@ const bulkCreateItems = defineTool({
         });
         const id =
           typeof response.data === 'number' ? response.data : (response.data as { id?: number })?.id;
-        angelegt.push({ index, id, name: resolved.name });
+        angelegt.push({
+          index,
+          id,
+          name: resolved.name,
+          // Der Verweis ist der Grund, warum ueberhaupt eine ID zurueckkommt:
+          // ohne ihn baut das Modell die Adresse selbst zusammen und raet.
+          url: id === undefined ? undefined : itemUrl(context.client.schema.instanzUrl, id, args.projectId),
+        });
       } catch (error) {
         fehlgeschlagen.push({
           index,

@@ -25,7 +25,8 @@ function kontext(): MappingContext {
       [7, 'Ada Lovelace'],
       [9, 'Alan Turing'],
     ]),
-    itemTypeLabels: new Map([
+    baseUrl: 'https://beispiel.jamacloud.com',
+  itemTypeLabels: new Map([
       [32, 'Requirement'],
       [33, 'Test Case'],
     ]),
@@ -149,6 +150,9 @@ describe('Item-Aufbereitung', () => {
       project: 5,
       modifiedDate: '2026-08-01T10:00:00.000Z',
       sequence: '1.2.3',
+      // Der Verweis auf die Jama-Oberflaeche: ohne ihn stellt ein Sprachmodell
+      // die Adresse selbst zusammen und raet dabei.
+      url: 'https://beispiel.jamacloud.com/perspective.req#/items/1234?projectId=5',
     });
   });
 
