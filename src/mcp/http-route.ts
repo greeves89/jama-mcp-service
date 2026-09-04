@@ -5,6 +5,7 @@ import { buildToolContext, markKeyUsed, resolveApiKey } from '../service/keys.js
 import { recordAudit, recordUsage } from '../service/usage.js';
 import { toServiceError } from '../shared/errors.js';
 import { logger } from '../shared/logger.js';
+import { aufruferAusAnfrage, aufruferText } from './aufrufer.js';
 
 /**
  * MCP ueber Streamable HTTP.
@@ -42,7 +43,8 @@ export function registerMcpRoute(app: FastifyInstance): void {
       });
     }
 
-    const context = await buildToolContext(resolved);
+    const aufrufer = aufruferAusAnfrage(request);
+    const context = { ...(await buildToolContext(resolved)), aufrufer };
     const keyInfo = { id: resolved.key.id, name: resolved.key.name };
 
     const server = buildMcpServer(context, {
@@ -53,7 +55,12 @@ export function registerMcpRoute(app: FastifyInstance): void {
         void recordAudit(entry, {
           type: 'api_key',
           id: resolved.key.id,
-          name: resolved.key.name,
+          // Ist die Person bekannt, steht sie im Audit-Log an erster Stelle:
+          // Der Zugang allein beantwortet die Frage "wer war das" nicht, sobald
+          // sich mehrere Menschen einen Key teilen.
+          name: aufrufer
+            ? `${aufruferText(aufrufer)} (ueber ${resolved.key.name})`
+            : resolved.key.name,
           ip: request.ip,
         });
       },

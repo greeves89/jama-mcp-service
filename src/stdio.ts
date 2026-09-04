@@ -84,6 +84,8 @@ async function main(): Promise<void> {
       .split(',')
       .map((eintrag) => eintrag.trim())
       .filter(Boolean),
+    // Ohne Datenbank gibt es keine Instanz-Einstellungen.
+    vermerkeHerkunft: false,
     tokenBudget: Number.parseInt(process.env.MCP_RESPONSE_TOKEN_BUDGET ?? '15000', 10),
     audit: () => {
       // Ohne Datenbank kein Audit-Trail. Das ist der Preis des Einzelplatzbetriebs

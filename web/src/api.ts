@@ -139,6 +139,7 @@ export interface UsageSummary {
 
 export interface RuntimeSettings {
   globalReadOnly: boolean;
+  vermerkeHerkunft: boolean;
   responseTokenBudget: number;
   usageRetentionDays: number;
 }

@@ -25,6 +25,19 @@ export interface RuntimeSettings {
    * Toolset aber gebraucht wird — etwa "write" ohne jama_delete_item.
    */
   disabledTools: string[];
+  /**
+   * Vermerkt jede vom Dienst ausgeloeste Aenderung als Kommentar am Item.
+   *
+   * Jama protokolliert zwar selbst, aber nur den technischen Benutzer, unter
+   * dem die Anbindung arbeitet. Wer die Aenderung im Chatfenster veranlasst
+   * hat, steht dort nicht — bei einem gemeinsam genutzten Zugang laesst sich
+   * die Herkunft im Nachhinein sonst nicht mehr klaeren. Der Kommentar traegt
+   * diese Angabe nach.
+   *
+   * Kostet je geaenderten Item einen zusaetzlichen Jama-Aufruf, faellt also
+   * beim Anlegen vieler Items ins Gewicht.
+   */
+  vermerkeHerkunft: boolean;
 }
 
 const CACHE_TTL_MS = 10_000;
@@ -37,6 +50,7 @@ function defaults(): RuntimeSettings {
     responseTokenBudget: config.MCP_RESPONSE_TOKEN_BUDGET,
     usageRetentionDays: config.USAGE_RETENTION_DAYS,
     disabledTools: [],
+    vermerkeHerkunft: false,
   };
 }
 

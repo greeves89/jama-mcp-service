@@ -1,6 +1,7 @@
 import type { z, ZodRawShape } from 'zod';
 import type { JamaClient } from '../jama/client.js';
 import type { Toolset } from '../shared/toolsets.js';
+import type { Aufrufer } from './aufrufer.js';
 
 /**
  * Kontext, den jeder Tool-Aufruf erhaelt. Er traegt alles, was die Guards
@@ -24,6 +25,16 @@ export interface ToolContext {
   disabledTools: string[];
   /** Antwortbudget in Token fuer diesen Aufruf. */
   tokenBudget: number;
+  /**
+   * Person, die den Aufruf ausgeloest hat, sofern der Client sie mitteilt.
+   * Eine Auskunft, kein Nachweis — die Rechte haengen weiterhin am Key.
+   */
+  aufrufer?: Aufrufer;
+  /**
+   * Vermerkt jede Aenderung als Kommentar am Item. Kostet einen zusaetzlichen
+   * Jama-Aufruf je Item und ist deshalb instanzweit abschaltbar.
+   */
+  vermerkeHerkunft: boolean;
   /** Wird von den Tools befuellt, damit der Aufruf im Audit-Log landet. */
   audit: (entry: AuditIntent) => void;
 }

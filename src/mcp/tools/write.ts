@@ -5,6 +5,7 @@ import { buildMappingContext, collectItemTypeIds, toItemDetail } from '../../jam
 import { resolveItem } from './core.js';
 import type { JamaItem, JamaItemType } from '../../jama/types.js';
 import { ServiceError } from '../../shared/errors.js';
+import { vermerkeHerkunft } from '../herkunft.js';
 
 /**
  * Toolset "write": veraendernde Operationen auf Items und Beziehungen.
@@ -98,6 +99,10 @@ const createItem = defineTool({
           collectItemTypeIds([created]),
         );
         detail = toItemDetail(created, mapping, { maxDescriptionChars: 1000 });
+      }
+
+      if (context.vermerkeHerkunft && newId !== undefined) {
+        await vermerkeHerkunft([newId], context, 'Angelegt');
       }
 
       return {
@@ -249,6 +254,10 @@ const createContainer = defineTool({
     const id =
       typeof response.data === 'number' ? response.data : (response.data as { id?: number })?.id;
 
+    if (context.vermerkeHerkunft && id !== undefined) {
+      await vermerkeHerkunft([id], context, `Angelegt (${args.kind})`);
+    }
+
     context.audit({
       action: 'container.create',
       targetType: 'item',
@@ -335,6 +344,10 @@ const updateItem = defineTool({
           collectItemTypeIds([updated]),
         );
         detail = toItemDetail(updated, mapping, { maxDescriptionChars: 1000 });
+      }
+
+      if (context.vermerkeHerkunft) {
+        await vermerkeHerkunft([item.id], context, 'Geaendert');
       }
 
       return {
@@ -538,6 +551,13 @@ const bulkCreateItems = defineTool({
           // stellen — die Items existieren, nur die Beschriftung fehlt.
         }
       }
+    }
+
+    if (context.vermerkeHerkunft && !args.dryRun) {
+      const ids = angelegt
+        .map((eintrag) => eintrag.id)
+        .filter((id): id is number => id !== undefined);
+      await vermerkeHerkunft(ids, context, 'Angelegt (Massenanlage)');
     }
 
     context.audit({

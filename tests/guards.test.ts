@@ -28,6 +28,7 @@ function kontext(overrides: Partial<ToolContext> = {}): ToolContext {
     readOnly: false,
     toolsets: ['core', 'write'],
     disabledTools: [],
+    vermerkeHerkunft: false,
     tokenBudget: 15_000,
     audit: vi.fn(),
     ...overrides,

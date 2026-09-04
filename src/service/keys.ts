@@ -167,6 +167,7 @@ export async function buildToolContext(resolved: ResolvedKey): Promise<ToolConte
     toolsets: resolved.toolsets,
     disabledTools: settings.disabledTools,
     tokenBudget: settings.responseTokenBudget,
+    vermerkeHerkunft: settings.vermerkeHerkunft,
     audit: () => {
       // Wird vom MCP-Server ueberschrieben; hier nur als sicherer Standard.
     },

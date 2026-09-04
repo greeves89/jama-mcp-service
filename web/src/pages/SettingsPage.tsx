@@ -25,6 +25,20 @@ export default function SettingsPage({ onAbgemeldet }: { onAbgemeldet: () => voi
 
   useEffect(laden, []);
 
+  const herkunftUmschalten = async (aktiv: boolean) => {
+    try {
+      await api.updateSettings({ vermerkeHerkunft: aktiv });
+      setMeldung(
+        aktiv
+          ? 'Änderungen werden künftig in Jama vermerkt.'
+          : 'Der Herkunftsvermerk ist abgeschaltet.',
+      );
+      laden();
+    } catch (error) {
+      setFehler(error instanceof Error ? error.message : 'Umstellen fehlgeschlagen');
+    }
+  };
+
   const notbremse = async (aktiv: boolean) => {
     try {
       await api.updateSettings({ globalReadOnly: aktiv });
@@ -112,6 +126,40 @@ export default function SettingsPage({ onAbgemeldet }: { onAbgemeldet: () => voi
             <ShieldOff size={14} />
             Alle Schreibzugriffe sperren
           </Button>
+        )}
+      </Card>
+
+      <Card title="Nachvollziehbarkeit">
+        <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+          Vermerkt jede Änderung als Kommentar am betroffenen Item: wer sie veranlasst hat und
+          über welchen Zugang. Jama führt zwar eine eigene Historie, dort steht aber nur der
+          technische Benutzer dieser Anbindung — teilen sich mehrere Personen einen Zugang, ist
+          im Nachhinein sonst nicht mehr feststellbar, wer eine Anforderung angelegt oder
+          geändert hat.
+        </p>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={daten.einstellungen.vermerkeHerkunft}
+            onChange={(e) => void herkunftUmschalten(e.target.checked)}
+          />
+          <span>
+            Herkunft als Kommentar in Jama vermerken
+            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+              Kostet einen zusätzlichen Jama-Aufruf je geändertem Item und fällt damit bei
+              Massenanlagen ins Gewicht. Ist die Person nicht bekannt, wird das im Kommentar
+              ausdrücklich gesagt.
+            </span>
+          </span>
+        </label>
+        {daten.einstellungen.vermerkeHerkunft && (
+          <Notice tone="info">
+            Der Client muss die Person mitschicken, damit sie im Kommentar erscheint. Open WebUI
+            sendet dafür Kopfzeilen, sobald ENABLE_FORWARD_USER_INFO_HEADERS gesetzt ist — bei
+            Anbindung über MCP werden sie derzeit allerdings noch nicht weitergereicht. Ohne die
+            Angabe steht im Kommentar nur der verwendete Zugang.
+          </Notice>
         )}
       </Card>
 

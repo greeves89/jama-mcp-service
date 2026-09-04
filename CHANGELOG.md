@@ -4,6 +4,37 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.9.0] — 2026-09-04
+
+### Hinzugefuegt
+- **Herkunftsvermerk in Jama.** Jede vom Dienst ausgeloeste Anlage oder Aenderung
+  kann als Kommentar am Item vermerkt werden, mit der Person und dem verwendeten
+  Zugang. Jama fuehrt zwar eine eigene Historie, dort steht aber nur der
+  technische Benutzer dieser Anbindung — teilen sich mehrere Personen einen
+  Zugang, war die Herkunft im Nachhinein nicht mehr zu klaeren. Schaltbar im
+  Dashboard unter "Einstellungen — Nachvollziehbarkeit", standardmaessig aus,
+  weil es je geaendertem Item einen zusaetzlichen Jama-Aufruf kostet.
+- **Die aufrufende Person wird aus den Kopfzeilen gelesen**
+  (`X-OpenWebUI-User-Name`, `-Email`, `-Id` sowie die verbreiteten Varianten
+  `X-Forwarded-User` und `X-Remote-User`) und erscheint zusaetzlich im
+  Audit-Log, dort vor dem Zugang.
+- Abschnitt "Wer hat die Aenderung veranlasst?" in der Deployment-Anleitung.
+
+### Hinweis zur Reichweite
+Open WebUI sendet diese Kopfzeilen, sobald `ENABLE_FORWARD_USER_INFO_HEADERS`
+gesetzt ist — bislang aber nur an OpenAI-kompatible Endpunkte, noch nicht an
+MCP-Server ueber Streamable HTTP (open-webui Nr. 21184, offen). Bis das
+nachgezogen ist, steht im Kommentar nur der verwendete Zugang; das wird dort
+ausdruecklich gesagt statt eine Herkunft vorzutaeuschen. Zuverlaessig ist heute
+ein eigener Key je Person mit eigenen Jama-Zugangsdaten — dann nennt schon
+Jamas eigene Historie den richtigen Verursacher.
+
+Die Angaben aus den Kopfzeilen sind eine Auskunft des Clients, kein Nachweis:
+Wer den Key besitzt, kann jeden Namen behaupten. Die Rechte haengen deshalb
+weiterhin ausschliesslich am Key. Steuerzeichen werden entfernt und die Laenge
+begrenzt, damit sich darueber weder Logzeilen faelschen noch fremder Text in
+Jama-Kommentare schieben laesst.
+
 ## [1.8.0] — 2026-09-04
 
 Aufarbeitung eines Rueckmeldeprotokolls aus dem Betrieb. Nicht jeder Punkt darin

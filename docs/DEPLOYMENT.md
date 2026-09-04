@@ -359,3 +359,56 @@ einziger Fehlversuch alle Benutzer gemeinsam aus.
 > `ports: ["8080:8080"]` ergänzt, kann sich jeder direkt verbindende Client
 > selbst als der eine vertraute Proxy ausgeben und eine beliebige Adresse
 > einschleusen — die gesamte Absicherung oben ist dann wirkungslos.
+
+
+## Wer hat die Änderung veranlasst?
+
+Jama führt eine eigene Historie, dort steht aber nur der technische Benutzer,
+unter dem diese Anbindung arbeitet. Teilen sich mehrere Personen einen Zugang —
+der Regelfall bei einem Chat-Werkzeug —, ist im Nachhinein nicht mehr
+feststellbar, wer eine Anforderung angelegt oder geändert hat.
+
+Dafür gibt es im Dashboard unter **Einstellungen → Nachvollziehbarkeit** den
+Schalter **Herkunft als Kommentar in Jama vermerken**. Ist er aktiv, erhält
+jedes angelegte oder geänderte Item einen Kommentar:
+
+```
+Angelegt über die Jama-Anbindung durch Erika Musterfrau
+<erika@example.com> (Zugang: Jama-dev01).
+```
+
+Der Vermerk kostet einen zusätzlichen Jama-Aufruf je Item und fällt deshalb bei
+Massenanlagen ins Gewicht. Schlägt er fehl, wird die Änderung selbst **nicht**
+zurückgenommen — sie ist zu diesem Zeitpunkt bereits geschehen; der Fehlschlag
+landet im Log.
+
+### Woher die Person kommt
+
+Der Dienst liest sie aus den Kopfzeilen der Anfrage, in dieser Reihenfolge:
+
+| Angabe | Kopfzeilen |
+|---|---|
+| Name | `X-OpenWebUI-User-Name`, `X-User-Name`, `X-Forwarded-User`, `X-Remote-User` |
+| E-Mail | `X-OpenWebUI-User-Email`, `X-User-Email`, `X-Forwarded-Email` |
+| Kennung | `X-OpenWebUI-User-Id`, `X-User-Id` |
+
+**Einschränkung bei Open WebUI:** Diese Kopfzeilen werden gesendet, sobald
+`ENABLE_FORWARD_USER_INFO_HEADERS=true` gesetzt ist — allerdings bislang nur an
+OpenAI-kompatible Endpunkte, **noch nicht an MCP-Server über Streamable HTTP**
+(open-webui Nr. 21184, zum Stand dieser Zeilen offen). Bis das nachgezogen ist,
+steht im Kommentar nur der verwendete Zugang, und das wird dort ausdrücklich
+gesagt statt eine Herkunft vorzutäuschen.
+
+**Der zuverlässige Weg heute** ist deshalb ein eigener API-Key je Person, mit
+den jeweils eigenen Jama-Zugangsdaten (`Art des Zugangs: Person`). Dann greifen
+zusätzlich die Jama-Berechtigungen pro Benutzer, und schon Jamas eigene Historie
+nennt den richtigen Verursacher — unabhängig davon, was der Client mitschickt.
+
+### Keine Berechtigungsgrundlage
+
+Die Angaben aus den Kopfzeilen sind eine Auskunft des Clients, kein Nachweis.
+Wer den API-Key besitzt, kann jeden beliebigen Namen behaupten. Sie taugen für
+die Nachvollziehbarkeit im Normalbetrieb; die Rechte hängen weiterhin
+ausschließlich am Key. Steuerzeichen werden entfernt und die Länge begrenzt,
+damit sich darüber weder Logzeilen fälschen noch fremder Text in Jama-Kommentare
+schieben lässt.
