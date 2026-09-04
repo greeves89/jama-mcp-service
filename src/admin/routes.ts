@@ -44,7 +44,7 @@ import { jamaCache } from '../jama/cache.js';
 import { rateLimiterSnapshots } from '../jama/rate-limiter.js';
 import { checkConnection, JamaClient } from '../jama/client.js';
 import { jamaCredentialsSchema } from '../jama/auth.js';
-import { buildToolContext, resolveApiKey } from '../service/keys.js';
+import { baueKeyUpdate, buildToolContext, resolveApiKey } from '../service/keys.js';
 import { redactArgs, runGuards } from '../mcp/guards.js';
 import { renderResult } from '../mcp/server.js';
 
@@ -439,12 +439,14 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     owner: z.string().min(1),
     accountType: z.enum(['user', 'service']).default('user'),
     connectionId: z.string().uuid(),
-    credentials: jamaCredentialsSchema.optional(),
+    // null entfernt eigene Zugangsdaten wieder.
+    credentials: jamaCredentialsSchema.nullable().optional(),
     toolsets: z.array(z.enum(TOOLSETS)).default(DEFAULT_TOOLSETS),
     allowedProjectIds: z.array(z.number().int()).default([]),
     readOnly: z.boolean().default(true),
     rateLimitRps: z.number().min(0.5).max(10).optional(),
-    expiresAt: z.string().optional(),
+    // null entfernt ein gesetztes Ablaufdatum wieder.
+    expiresAt: z.string().nullable().optional(),
     note: z.string().optional(),
   });
 
@@ -570,27 +572,20 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           .extend({ disabled: z.boolean().optional() })
           .parse(request.body);
 
-        const update: Record<string, unknown> = {};
-        if (body.name !== undefined) update.name = body.name;
-        if (body.owner !== undefined) update.owner = body.owner;
-        if (body.toolsets !== undefined) update.toolsets = ensureCore(body.toolsets);
-        if (body.allowedProjectIds !== undefined) update.allowedProjectIds = body.allowedProjectIds;
-        if (body.readOnly !== undefined) update.readOnly = body.readOnly;
-        if (body.rateLimitRps !== undefined) update.rateLimitRps = body.rateLimitRps;
-        if (body.expiresAt !== undefined) update.expiresAt = new Date(body.expiresAt);
-        if (body.note !== undefined) update.note = body.note;
-        if (body.credentials !== undefined) {
-          update.jamaCredentialsEnc = encryptCredentials(body.credentials);
-        }
-        if (body.disabled !== undefined) {
-          update.disabledAt = body.disabled ? new Date() : null;
-        }
+        const update = baueKeyUpdate(body, encryptCredentials);
 
         const [updated] = await getDb()
           .update(apiKeys)
           .set(update)
           .where(eq(apiKeys.id, id))
           .returning();
+
+        // Ohne diese Pruefung liefe eine unbekannte ID in einen Zugriff auf
+        // undefined und damit in einen 500er, der nach einem Serverfehler
+        // aussieht statt nach einem Tippfehler in der Adresse.
+        if (!updated) {
+          throw new ServiceError('VALIDATION', 'Dieser API-Key existiert nicht.', 404);
+        }
 
         await recordAudit(
           {
@@ -603,7 +598,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           { type: 'admin', ip: clientIp(request) },
         );
 
-        const { keyHash: _hash, jamaCredentialsEnc: _creds, ...rest } = updated!;
+        const { keyHash: _hash, jamaCredentialsEnc: _creds, ...rest } = updated;
         return rest;
       },
       true,

@@ -2,7 +2,7 @@
 
 Konzept: [docs/KONZEPT.md](docs/KONZEPT.md) · Vergleich: [docs/vergleich-mcp.md](docs/vergleich-mcp.md) · Deployment: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
-**Stand:** v1.3.0 · laeuft in einer echten Umgebung gegen eine reale Jama-Instanz
+**Stand:** v1.4.0 · laeuft in einer echten Umgebung gegen eine reale Jama-Instanz
 
 ## Offen
 
@@ -48,7 +48,8 @@ Konzept: [docs/KONZEPT.md](docs/KONZEPT.md) · Vergleich: [docs/vergleich-mcp.md
 - [x] Admin-Dashboard mit 9 Seiten, PIN mit Argon2id, IP-Sperre, CSRF
 - [x] Einzelne Tools instanzweit abschaltbar (v1.1.0)
 - [x] Verbindungen im Dashboard bearbeitbar, Zugangsdaten erneuerbar (v1.3.0)
-- [x] 124 Tests inklusive MCDC-Matrizen
+- [x] API-Keys im Dashboard bearbeitbar, Toolsets nachtraeglich korrigierbar (v1.4.0)
+- [x] 136 Tests inklusive MCDC-Matrizen
 - [x] Docker: vollstaendiger Stack, Traefik-Variante, Datenbank-Netz-Override
 - [x] Deployment-Anleitung fuer Portainer und bestehende Infrastruktur
 - [x] Oeffentliches Repository, MIT-Lizenz

@@ -180,3 +180,85 @@ export async function markKeyUsed(apiKeyId: string): Promise<void> {
     .set({ lastUsedAt: new Date() })
     .where(eq(apiKeys.id, apiKeyId));
 }
+
+/**
+ * Regeln fuer das Aendern eines bestehenden API-Keys.
+ *
+ * Bewusst hier und nicht in der Route: was beim Aendern passieren darf, ist
+ * eine fachliche Frage und ohne Datenbank pruefbar.
+ */
+export interface KeyAenderung {
+  name?: string;
+  owner?: string;
+  toolsets?: Toolset[];
+  allowedProjectIds?: number[];
+  readOnly?: boolean;
+  rateLimitRps?: number | null;
+  /** null entfernt ein gesetztes Ablaufdatum wieder. */
+  expiresAt?: string | null;
+  note?: string | null;
+  /** null entfernt eigene Zugangsdaten; der Key nutzt dann die der Verbindung. */
+  credentials?: JamaCredentials | null;
+  disabled?: boolean;
+}
+
+/**
+ * Baut die zu schreibenden Spalten fuer einen API-Key.
+ *
+ * Weggelassene Felder bleiben unangetastet — nur so laesst sich etwa ein
+ * fehlendes Toolset ergaenzen, ohne die hinterlegten Jama-Zugangsdaten erneut
+ * einzugeben, die ohnehin niemand mehr zur Hand hat.
+ *
+ * Das Verschluesseln wird hereingereicht, damit die Funktion ohne
+ * Schluesselmaterial auskommt und im Test nachvollziehbar bleibt.
+ */
+export function baueKeyUpdate(
+  aenderung: KeyAenderung,
+  verschluesseln: (credentials: JamaCredentials) => string,
+): Record<string, unknown> {
+  const update: Record<string, unknown> = {};
+
+  if (aenderung.name !== undefined) update.name = aenderung.name;
+  if (aenderung.owner !== undefined) update.owner = aenderung.owner;
+  // Ohne "core" fehlt der Weg vom Projektnamen zur ID; alle uebrigen Toolsets
+  // laufen dann ins Leere. Deshalb auch beim Aendern erzwungen.
+  if (aenderung.toolsets !== undefined) update.toolsets = ensureCore(aenderung.toolsets);
+  if (aenderung.allowedProjectIds !== undefined) {
+    update.allowedProjectIds = aenderung.allowedProjectIds;
+  }
+  if (aenderung.readOnly !== undefined) update.readOnly = aenderung.readOnly;
+  if (aenderung.rateLimitRps !== undefined) update.rateLimitRps = aenderung.rateLimitRps;
+  if (aenderung.note !== undefined) update.note = aenderung.note;
+
+  if (aenderung.expiresAt !== undefined) {
+    // null heisst ausdruecklich "laeuft nicht mehr ab". Ohne diesen Zweig liesse
+    // sich ein einmal gesetztes Ablaufdatum nie wieder entfernen.
+    if (aenderung.expiresAt === null) {
+      update.expiresAt = null;
+    } else {
+      const datum = new Date(aenderung.expiresAt);
+      if (Number.isNaN(datum.getTime())) {
+        throw new ServiceError(
+          'VALIDATION',
+          `"${aenderung.expiresAt}" ist kein gültiges Datum.`,
+          400,
+        );
+      }
+      update.expiresAt = datum;
+    }
+  }
+
+  if (aenderung.credentials !== undefined) {
+    // null heisst: eigene Zugangsdaten entfernen und wieder die der Verbindung
+    // verwenden. Ohne diesen Zweig liesse sich ein Key, dem einmal eigene
+    // Daten mitgegeben wurden, nie wieder auf den Service-Account umstellen.
+    update.jamaCredentialsEnc =
+      aenderung.credentials === null ? null : verschluesseln(aenderung.credentials);
+  }
+
+  if (aenderung.disabled !== undefined) {
+    update.disabledAt = aenderung.disabled ? new Date() : null;
+  }
+
+  return update;
+}

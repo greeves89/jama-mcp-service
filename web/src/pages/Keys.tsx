@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ban, Check, Copy, KeyRound, Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Ban, Check, Copy, KeyRound, Pencil, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { api, type ApiKeyRow, type Connection, type NeuerKey } from '../api';
 import { Badge, Button, Card, Field, Notice, Spinner, Table, inputClass, zeit } from '../components/ui';
 
@@ -19,6 +19,9 @@ export default function KeysPage() {
   const [verbindungen, setVerbindungen] = useState<Connection[]>([]);
   const [fehler, setFehler] = useState<string>();
   const [formularOffen, setFormularOffen] = useState(false);
+  // Der Key, der gerade bearbeitet wird. Getrennt vom Anlegen-Formular, damit
+  // beide nicht gleichzeitig offen stehen koennen.
+  const [inBearbeitung, setInBearbeitung] = useState<ApiKeyRow>();
   const [neuerKey, setNeuerKey] = useState<NeuerKey>();
 
   const laden = () => {
@@ -62,7 +65,13 @@ export default function KeysPage() {
             Berechtigungen.
           </p>
         </div>
-        <Button onClick={() => setFormularOffen(!formularOffen)} disabled={verbindungen.length === 0}>
+        <Button
+          onClick={() => {
+            setInBearbeitung(undefined);
+            setFormularOffen(!formularOffen);
+          }}
+          disabled={verbindungen.length === 0}
+        >
           <Plus size={14} />
           Neuer Key
         </Button>
@@ -80,12 +89,29 @@ export default function KeysPage() {
       {neuerKey && <KeyAnzeige daten={neuerKey} onSchliessen={() => setNeuerKey(undefined)} />}
 
       {formularOffen && (
-        <NeuesKeyFormular
+        <KeyFormular
           verbindungen={verbindungen}
           onAbbrechen={() => setFormularOffen(false)}
+          onGespeichert={() => setFormularOffen(false)}
           onAngelegt={(daten) => {
             setNeuerKey(daten);
             setFormularOffen(false);
+            laden();
+          }}
+        />
+      )}
+
+      {inBearbeitung && (
+        <KeyFormular
+          // Der Schluessel erzwingt ein frisches Formular beim Wechsel auf einen
+          // anderen Key — sonst blieben die Eingaben des vorigen stehen.
+          key={inBearbeitung.id}
+          verbindungen={verbindungen}
+          bearbeiteKey={inBearbeitung}
+          onAbbrechen={() => setInBearbeitung(undefined)}
+          onAngelegt={() => undefined}
+          onGespeichert={() => {
+            setInBearbeitung(undefined);
             laden();
           }}
         />
@@ -159,6 +185,16 @@ export default function KeysPage() {
                       >
                         {key.disabledAt ? <Check size={13} /> : <Ban size={13} />}
                       </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setFormularOffen(false);
+                          setInBearbeitung(key);
+                        }}
+                        title="Key bearbeiten"
+                      >
+                        <Pencil size={13} />
+                      </Button>
                       <Button variant="secondary" onClick={() => void rotieren(key)} title="Rotieren">
                         <RotateCw size={13} />
                       </Button>
@@ -224,24 +260,53 @@ function KeyAnzeige({ daten, onSchliessen }: { daten: NeuerKey; onSchliessen: ()
   );
 }
 
-function NeuesKeyFormular({
+/**
+ * Formular zum Anlegen und zum Bearbeiten eines API-Keys.
+ *
+ * Beides in einem Bauteil, weil es dieselben Felder und dieselben Warnungen
+ * sind. Zwei Unterschiede gibt es beim Bearbeiten:
+ *
+ * Die Zugangsdaten bleiben leer und optional — leer heisst "unveraendert".
+ * Weder ein Jama-Client-Secret noch ein Passwort laesst sich zurueckholen, um
+ * es hier erneut einzutippen, nur weil ein Toolset ergaenzt werden soll.
+ *
+ * Art des Zugangs und Jama-Verbindung sind fest. Beide bestimmen, gegen welche
+ * Instanz und mit welchem Rollenmodell der Key arbeitet; sie nachtraeglich zu
+ * verbiegen ergaebe einen Zugang, dessen bisherige Protokolleintraege nicht
+ * mehr zu ihm passen. Dafuer ist ein neuer Key der ehrlichere Weg.
+ */
+function KeyFormular({
   verbindungen,
+  bearbeiteKey,
   onAngelegt,
+  onGespeichert,
   onAbbrechen,
 }: {
   verbindungen: Connection[];
+  bearbeiteKey?: ApiKeyRow;
   onAngelegt: (daten: NeuerKey) => void;
+  onGespeichert: () => void;
   onAbbrechen: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [owner, setOwner] = useState('');
-  const [accountType, setAccountType] = useState<'user' | 'service'>('user');
-  const [connectionId, setConnectionId] = useState(verbindungen[0]?.id ?? '');
-  const [toolsets, setToolsets] = useState<string[]>(['core', 'trace']);
-  const [readOnly, setReadOnly] = useState(true);
-  const [projekte, setProjekte] = useState('');
-  const [expiresAt, setExpiresAt] = useState('');
-  const [authArt, setAuthArt] = useState<'connection' | 'oauth' | 'basic'>('connection');
+  const bearbeiten = bearbeiteKey !== undefined;
+
+  const [name, setName] = useState(bearbeiteKey?.name ?? '');
+  const [owner, setOwner] = useState(bearbeiteKey?.owner ?? '');
+  const [accountType, setAccountType] = useState<'user' | 'service'>(
+    bearbeiteKey?.accountType === 'service' ? 'service' : 'user',
+  );
+  const [connectionId, setConnectionId] = useState(
+    bearbeiteKey?.connectionId ?? verbindungen[0]?.id ?? '',
+  );
+  const [toolsets, setToolsets] = useState<string[]>(bearbeiteKey?.toolsets ?? ['core', 'trace']);
+  const [readOnly, setReadOnly] = useState(bearbeiteKey?.readOnly ?? true);
+  const [projekte, setProjekte] = useState(bearbeiteKey?.allowedProjectIds.join(', ') ?? '');
+  // Das Datumsfeld erwartet JJJJ-MM-TT; gespeichert wird ein vollstaendiger
+  // Zeitstempel.
+  const [expiresAt, setExpiresAt] = useState(bearbeiteKey?.expiresAt?.slice(0, 10) ?? '');
+  const [authArt, setAuthArt] = useState<'connection' | 'oauth' | 'basic'>(
+    bearbeiteKey?.eigeneCredentials ? 'oauth' : 'connection',
+  );
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [username, setUsername] = useState('');
@@ -252,6 +317,19 @@ function NeuesKeyFormular({
   const verbindung = verbindungen.find((v) => v.id === connectionId);
   const schreibendeToolsets = toolsets.filter((id) => TOOLSETS.find((t) => t.id === id)?.mutating);
   const warnungProduktiv = verbindung?.isProduction && !readOnly;
+
+  const zugangsdatenAngefasst =
+    authArt === 'oauth'
+      ? clientId !== '' || clientSecret !== ''
+      : authArt === 'basic'
+        ? username !== '' || password !== ''
+        : false;
+
+  // Beim Anlegen sind Angaben Pflicht, sobald eigene Zugangsdaten gewaehlt sind.
+  // Beim Bearbeiten nur dann, wenn von "Verbindung verwenden" auf eigene
+  // gewechselt wird — sonst gaebe es nichts zu verschluesseln.
+  const wechselAufEigene = bearbeiten && !bearbeiteKey.eigeneCredentials && authArt !== 'connection';
+  const zugangsdatenPflicht = (!bearbeiten && authArt !== 'connection') || wechselAufEigene;
 
   const absenden = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -271,29 +349,56 @@ function NeuesKeyFormular({
           : undefined;
 
     try {
-      onAngelegt(
-        await api.createKey({
+      if (bearbeiten) {
+        await api.updateKey(bearbeiteKey.id, {
           name,
           owner,
-          accountType,
-          connectionId,
           toolsets,
           readOnly,
           allowedProjectIds: projektIds,
-          expiresAt: expiresAt || undefined,
-          credentials,
-        }),
-      );
+          // Leeres Feld heisst ausdruecklich "laeuft nicht mehr ab".
+          expiresAt: expiresAt === '' ? null : expiresAt,
+          // Nur mitschicken, wenn wirklich etwas passiert ist: neue Daten
+          // eingetragen, oder auf die Zugangsdaten der Verbindung zurueckgestellt.
+          ...(authArt === 'connection' && bearbeiteKey.eigeneCredentials
+            ? { credentials: null }
+            : zugangsdatenAngefasst
+              ? { credentials }
+              : {}),
+        });
+        onGespeichert();
+      } else {
+        onAngelegt(
+          await api.createKey({
+            name,
+            owner,
+            accountType,
+            connectionId,
+            toolsets,
+            readOnly,
+            allowedProjectIds: projektIds,
+            expiresAt: expiresAt || undefined,
+            credentials,
+          }),
+        );
+      }
     } catch (error) {
-      setFehler(error instanceof Error ? error.message : 'Anlegen fehlgeschlagen');
+      const text = error instanceof Error ? error.message : undefined;
+      setFehler(text ?? (bearbeiten ? 'Speichern fehlgeschlagen' : 'Anlegen fehlgeschlagen'));
     } finally {
       setLaeuft(false);
     }
   };
 
   return (
-    <Card title="Neuen API-Key anlegen">
+    <Card title={bearbeiten ? `API-Key bearbeiten: ${bearbeiteKey.name}` : 'Neuen API-Key anlegen'}>
       <form onSubmit={absenden} className="space-y-4">
+        {bearbeiten && (
+          <Notice tone="info">
+            Der Key-Wert selbst ändert sich dabei nicht — bereits eingerichtete Clients laufen
+            weiter. Zum Austausch des Wertes dient stattdessen „Rotieren".
+          </Notice>
+        )}
         {fehler && <Notice tone="bad">{fehler}</Notice>}
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -304,10 +409,14 @@ function NeuesKeyFormular({
             <input className={inputClass} value={owner} onChange={(e) => setOwner(e.target.value)} required />
           </Field>
 
-          <Field label="Art des Zugangs">
+          <Field
+            label="Art des Zugangs"
+            hint={bearbeiten ? 'Nachträglich nicht änderbar.' : undefined}
+          >
             <select
               className={inputClass}
               value={accountType}
+              disabled={bearbeiten}
               onChange={(e) => setAccountType(e.target.value as 'user' | 'service')}
             >
               <option value="user">Person</option>
@@ -315,8 +424,16 @@ function NeuesKeyFormular({
             </select>
           </Field>
 
-          <Field label="Jama-Verbindung">
-            <select className={inputClass} value={connectionId} onChange={(e) => setConnectionId(e.target.value)}>
+          <Field
+            label="Jama-Verbindung"
+            hint={bearbeiten ? 'Nachträglich nicht änderbar.' : undefined}
+          >
+            <select
+              className={inputClass}
+              value={connectionId}
+              disabled={bearbeiten}
+              onChange={(e) => setConnectionId(e.target.value)}
+            >
               {verbindungen.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
@@ -339,7 +456,13 @@ function NeuesKeyFormular({
 
           <Field
             label="Gültig bis"
-            hint={accountType === 'service' ? 'Für Service-Accounts verpflichtend.' : 'Optional.'}
+            hint={
+              accountType === 'service'
+                ? 'Für Service-Accounts verpflichtend.'
+                : bearbeiten
+                  ? 'Leeren entfernt das Ablaufdatum.'
+                  : 'Optional.'
+            }
           >
             <input type="date" className={inputClass} value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
           </Field>
@@ -398,13 +521,41 @@ function NeuesKeyFormular({
           </select>
         </Field>
 
+        {bearbeiten && bearbeiteKey.eigeneCredentials && authArt !== 'connection' && (
+          <Notice tone="info">
+            Die hinterlegten Zugangsdaten bleiben unverändert, solange die folgenden Felder leer
+            bleiben. Nur ausfüllen, wenn sie erneuert werden sollen.
+          </Notice>
+        )}
+
+        {bearbeiten && bearbeiteKey.eigeneCredentials && authArt === 'connection' && (
+          <Notice tone="warn">
+            Die eigenen Zugangsdaten dieses Keys werden beim Speichern entfernt. Er arbeitet danach
+            mit denen der Verbindung — der Jama-Audit-Trail nennt dann nicht mehr die einzelne
+            Person, sondern den gemeinsamen Zugang.
+          </Notice>
+        )}
+
         {authArt === 'oauth' && (
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Client-ID">
-              <input className={inputClass} value={clientId} onChange={(e) => setClientId(e.target.value)} required />
+              <input
+                className={inputClass}
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && bearbeiteKey.eigeneCredentials ? 'unverändert' : undefined}
+              />
             </Field>
             <Field label="Client-Secret">
-              <input type="password" className={inputClass} value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} required />
+              <input
+                type="password"
+                className={inputClass}
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && bearbeiteKey.eigeneCredentials ? 'unverändert' : undefined}
+              />
             </Field>
           </div>
         )}
@@ -412,10 +563,23 @@ function NeuesKeyFormular({
         {authArt === 'basic' && (
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Benutzername">
-              <input className={inputClass} value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <input
+                className={inputClass}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && bearbeiteKey.eigeneCredentials ? 'unverändert' : undefined}
+              />
             </Field>
             <Field label="Passwort">
-              <input type="password" className={inputClass} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <input
+                type="password"
+                className={inputClass}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && bearbeiteKey.eigeneCredentials ? 'unverändert' : undefined}
+              />
             </Field>
           </div>
         )}
@@ -423,7 +587,13 @@ function NeuesKeyFormular({
         <div className="flex gap-2">
           <Button type="submit" disabled={laeuft || toolsets.length === 0}>
             <KeyRound size={14} />
-            {laeuft ? 'Wird angelegt' : 'Key anlegen'}
+            {laeuft
+              ? bearbeiten
+                ? 'Wird gespeichert'
+                : 'Wird angelegt'
+              : bearbeiten
+                ? 'Änderungen speichern'
+                : 'Key anlegen'}
           </Button>
           <Button variant="secondary" onClick={onAbbrechen}>
             Abbrechen

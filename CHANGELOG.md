@@ -4,6 +4,36 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.4.0] — 2026-09-04
+
+### Hinzugefuegt
+- **API-Keys lassen sich im Dashboard bearbeiten.** Bisher gab es nur Anlegen,
+  Deaktivieren, Rotieren und Loeschen. Ein Zugang mit falsch gesetzten Toolsets
+  liess sich damit nur korrigieren, indem man ihn neu anlegte und in jedem
+  angebundenen Client austauschte. Genau dieser Fall trat im Betrieb auf: ein
+  Key war ohne "core" angelegt und damit unbrauchbar. Aenderbar sind jetzt Name,
+  Verantwortlicher, Toolsets, Leserechte, Projekt-Allowlist, Ablaufdatum und die
+  eigenen Jama-Zugangsdaten.
+- Die Zugangsdaten bleiben beim Bearbeiten leer und optional — leer heisst
+  "unveraendert". Weder ein Client-Secret noch ein Passwort laesst sich
+  zurueckholen, um es erneut einzutippen, nur weil ein Toolset zu ergaenzen ist.
+- Art des Zugangs und Jama-Verbindung sind beim Bearbeiten bewusst fest: beide
+  bestimmen, gegen welche Instanz und mit welchem Rollenmodell der Key arbeitet.
+  Nachtraeglich verbogen ergaeben sie einen Zugang, dessen bisherige
+  Protokolleintraege nicht mehr zu ihm passen.
+
+### Behoben
+- **Ein einmal gesetztes Ablaufdatum liess sich nie wieder entfernen** — das
+  Feld nahm keinen Leerwert an. Ein leeres Feld heisst jetzt ausdruecklich
+  "laeuft nicht mehr ab".
+- **Ein unbrauchbares Datum wurde stillschweigend uebernommen.** `new Date()`
+  ergibt bei nicht lesbarer Eingabe ein ungueltiges Datum, das ungeprueft in die
+  Datenbankschicht lief. Jetzt kommt eine verstaendliche Meldung.
+- **Ein Key mit eigenen Zugangsdaten liess sich nicht auf die der Verbindung
+  zurueckstellen.** Die Angabe konnte nur gesetzt, nicht entfernt werden.
+- Ein PATCH auf eine unbekannte Key-ID lief in einen Zugriff auf undefined und
+  damit in einen 500er. Jetzt kommt sauber 404.
+
 ## [1.3.0] — 2026-09-04
 
 ### Hinzugefuegt
