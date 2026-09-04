@@ -160,6 +160,7 @@ export class JamaHttp {
       if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
       this.stats.jamaCalls += 1;
+      const begonnen = Date.now();
 
       let response: Response;
       try {
@@ -179,7 +180,24 @@ export class JamaHttp {
         throw new ServiceError('JAMA_UNAVAILABLE', `Jama nicht erreichbar: ${message}`, 502);
       }
 
-      if (response.ok) return response;
+      if (response.ok) {
+        // Auf "debug" wird jeder Jama-Aufruf sichtbar. Das ist der Schalter fuer
+        // die Fehlersuche: ohne ihn ist von aussen nicht erkennbar, welche
+        // Adressen dieser Dienst ueberhaupt anspricht und was Jama antwortet.
+        // Bewusst nur Metadaten — der Authorization-Header und die Inhalte der
+        // Items bleiben aussen vor.
+        logger.debug(
+          {
+            methode: method,
+            pfad: path,
+            status: response.status,
+            dauerMs: Date.now() - begonnen,
+            versuch: attempt + 1,
+          },
+          'Jama-Aufruf',
+        );
+        return response;
+      }
 
       // Token koennte serverseitig invalidiert worden sein — genau einmal erneuern.
       if (response.status === 401 && !tokenRefreshed) {
@@ -201,6 +219,21 @@ export class JamaHttp {
       }
 
       const text = await response.text().catch(() => '');
+
+      // Fehlerhafte Aufrufe erscheinen unabhaengig vom Log-Level, samt der
+      // Antwort von Jama: dort steht der eigentliche Grund. Gekuerzt, weil
+      // manche Instanzen bei Fehlern eine vollstaendige HTML-Seite liefern.
+      logger.warn(
+        {
+          methode: method,
+          pfad: path,
+          status: response.status,
+          dauerMs: Date.now() - begonnen,
+          antwort: text.slice(0, 500),
+        },
+        'Jama-Aufruf fehlgeschlagen',
+      );
+
       throw new JamaApiError(response.status, explainJamaError(response.status, text), {
         path,
         method,

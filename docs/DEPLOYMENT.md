@@ -266,6 +266,38 @@ Erfolgreiche Anfragen werden bewusst nicht protokolliert: Das Dashboard erzeugt
 pro Seitenaufruf ein Vielfaches an Anfragen und würde alles Übrige verdecken.
 Wer sie braucht, setzt `LOG_LEVEL=debug`.
 
+### Fehlersuche: alles mitlesen
+
+Für die Fehlersuche gibt es eine gesprächigere Stufe:
+
+```bash
+# In der .env setzen, dann neu starten
+LOG_LEVEL=debug
+```
+
+Zusätzlich erscheint dann:
+
+- **jeder einzelne Aufruf an Jama** mit Methode, Pfad, Status, Dauer und
+  Versuchsnummer — daran ist zu sehen, welche Adressen der Dienst überhaupt
+  anspricht und ob wiederholt werden musste
+- jede erfolgreiche Anfrage an den Dienst selbst
+
+Fehlgeschlagene Jama-Aufrufe erscheinen **unabhängig vom Log-Level**, samt der
+Antwort von Jama (auf 500 Zeichen gekürzt). Dasselbe gilt für eine
+fehlgeschlagene Anmeldung: Dort steht Jamas OAuth-Antwort im Klartext, also
+`invalid_client`, `invalid_grant` oder die zugehörige Beschreibung — und damit
+die eigentliche Ursache. Zur Unterscheidung mehrerer hinterlegter Zugänge wird
+der Anfang der Client-ID mitgeschrieben, nie das Secret.
+
+Im Dauerbetrieb gehört `LOG_LEVEL` wieder auf `info`: Auf `debug` erzeugt schon
+ein einzelner Tool-Aufruf mehrere Einträge, und die 100 MB je Container sind
+entsprechend schneller erreicht.
+
+Was **niemals** im Log landet, unabhängig von der Stufe: Zugangsdaten, Tokens,
+Cookies, PINs (sie werden vor der Ausgabe ersetzt) sowie die fachlichen Inhalte
+der Jama-Items — Anforderungstexte können personenbezogene oder vertrauliche
+Angaben enthalten und haben in einem Betriebsprotokoll nichts zu suchen.
+
 Zugangsdaten, Tokens, Cookies und PINs werden vor der Ausgabe ersetzt; Inhalte
 aus Jama-Items landen grundsätzlich nicht im Log.
 

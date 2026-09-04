@@ -4,6 +4,28 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.6.0] — 2026-09-04
+
+### Hinzugefuegt
+- **Jeder Aufruf an Jama ist jetzt nachvollziehbar.** Bisher wurde kein
+  einziger protokolliert — von aussen war nicht erkennbar, welche Adressen der
+  Dienst anspricht und was Jama antwortet. Auf `LOG_LEVEL=debug` erscheint jeder
+  Aufruf mit Methode, Pfad, Status, Dauer und Versuchsnummer.
+- **Fehlgeschlagene Jama-Aufrufe erscheinen unabhaengig vom Log-Level**, samt
+  der Antwort von Jama (auf 500 Zeichen gekuerzt). Ebenso eine fehlgeschlagene
+  Anmeldung: dort steht Jamas OAuth-Antwort im Klartext. Zur Unterscheidung
+  mehrerer hinterlegter Zugaenge wird der Anfang der Client-ID mitgeschrieben,
+  nie das Secret.
+- Abschnitt "Fehlersuche: alles mitlesen" in der Deployment-Anleitung.
+
+### Behoben
+- **Bei einem abgelehnten Zugang (401) wurde Jamas Antwort verworfen.** Im
+  Dashboard wie im Log stand immer derselbe allgemeine Satz, und es war nicht zu
+  unterscheiden, ob die Client-ID unbekannt, das Secret falsch oder das Konto
+  gesperrt war — der Betreiber konnte nur raten. `error` und
+  `error_description` werden nun angehaengt, bei einer Antwort ohne JSON der
+  gekuerzte Rohtext.
+
 ## [1.5.2] — 2026-09-04
 
 ### Behoben

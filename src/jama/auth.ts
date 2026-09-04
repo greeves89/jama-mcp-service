@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { JamaApiError, ServiceError, explainJamaError } from '../shared/errors.js';
+import { logger } from '../shared/logger.js';
 
 /**
  * Beschafft Authorization-Header fuer Jama.
@@ -111,6 +112,23 @@ async function requestOAuthToken(
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
+
+    // Die Anmeldung ist der erste Schritt jedes Aufrufs; scheitert sie, steht
+    // alles Weitere still. Der Grund gehoert deshalb unabhaengig vom Log-Level
+    // ins Protokoll, samt Jamas Antwort — dort steht, ob die Client-ID
+    // unbekannt, das Secret falsch oder das Konto gesperrt ist.
+    logger.warn(
+      {
+        instanz: baseUrl,
+        status: response.status,
+        // Nur der Anfang der Client-ID: genug, um zwei hinterlegte Zugaenge
+        // auseinanderzuhalten, zu wenig, um sie andernorts zu verwenden.
+        clientIdAnfang: credentials.clientId.slice(0, 8),
+        antwort: text.slice(0, 500),
+      },
+      'Anmeldung bei Jama fehlgeschlagen',
+    );
+
     throw new JamaApiError(response.status, explainJamaError(response.status, text));
   }
 

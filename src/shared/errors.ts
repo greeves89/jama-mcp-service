@@ -92,13 +92,44 @@ function mapJamaStatus(status: number): ErrorCode {
  * Uebersetzt einen Jama-Fehler in eine Nachricht, mit der ein LLM etwas anfangen
  * kann. Ein nacktes "401" fuehrt sonst zu Endlosschleifen aus Wiederholungen.
  */
+/**
+ * Zieht aus einer OAuth-Fehlerantwort den eigentlichen Grund heraus.
+ *
+ * Jama antwortet bei abgelehnten Zugangsdaten nach RFC 6749 mit einem
+ * JSON-Objekt aus "error" und "error_description" — dort steht, ob die
+ * Client-ID unbekannt, das Secret falsch oder das Konto gesperrt ist. Diese
+ * Angabe ist der einzige belastbare Hinweis auf die Ursache und darf deshalb
+ * nicht hinter einem allgemeinen Text verschwinden.
+ */
+function oauthGrund(body: string): string | undefined {
+  try {
+    const daten = JSON.parse(body) as { error?: unknown; error_description?: unknown };
+    const teile = [daten.error, daten.error_description]
+      .filter((wert): wert is string => typeof wert === 'string' && wert.length > 0)
+      .map((wert) => wert.slice(0, 200));
+    return teile.length > 0 ? teile.join(': ') : undefined;
+  } catch {
+    // Kein JSON — dann ist der Rohtext immer noch besser als nichts.
+    const text = body.trim().slice(0, 200);
+    return text.length > 0 ? text : undefined;
+  }
+}
+
 export function explainJamaError(status: number, body: string): string {
   const snippet = body.slice(0, 400);
   switch (status) {
     case 400:
       return `Jama hat die Anfrage abgelehnt (400). Haeufigste Ursache sind unbekannte Feldnamen — Custom Fields tragen ein Suffix wie "customField$12". Rufe jama_get_project_schema auf, um die gueltigen Feldnamen des ItemTypes zu erhalten. Antwort von Jama: ${snippet}`;
-    case 401:
-      return 'Jama hat die Anmeldung abgelehnt (401). Die hinterlegten Zugangsdaten sind ungültig oder abgelaufen. Der Zugriff erfordert außerdem eine Named-Creator-Lizenz; Creator-Float-Lizenzen haben keinen API-Zugang.';
+    case 401: {
+      // Bisher wurde Jamas Antwort hier verworfen. Damit stand in jedem
+      // Fehlerfall derselbe Text, und die Ursache — falsches Secret, unbekannte
+      // Client-ID, gesperrtes Konto — blieb unsichtbar.
+      const grund = oauthGrund(body);
+      return (
+        'Jama hat die Anmeldung abgelehnt (401). Die hinterlegten Zugangsdaten sind ungültig oder abgelaufen. Der Zugriff erfordert außerdem eine Named-Creator-Lizenz; Creator-Float-Lizenzen haben keinen API-Zugang.' +
+        (grund ? ` Antwort von Jama: ${grund}` : '')
+      );
+    }
     case 403:
       return 'Keine Berechtigung fuer diese Ressource (403). Der hinterlegte Jama-Benutzer hat auf dieses Projekt oder Item keinen Zugriff.';
     case 404:
