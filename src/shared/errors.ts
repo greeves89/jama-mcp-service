@@ -98,7 +98,7 @@ export function explainJamaError(status: number, body: string): string {
     case 400:
       return `Jama hat die Anfrage abgelehnt (400). Haeufigste Ursache sind unbekannte Feldnamen — Custom Fields tragen ein Suffix wie "customField$12". Rufe jama_get_project_schema auf, um die gueltigen Feldnamen des ItemTypes zu erhalten. Antwort von Jama: ${snippet}`;
     case 401:
-      return 'Jama hat die Anmeldung abgelehnt (401). Die hinterlegten Zugangsdaten sind ungueltig oder abgelaufen. Der Zugriff erfordert ausserdem eine Named-Creator-Lizenz; Creator-Float-Lizenzen haben keinen API-Zugang.';
+      return 'Jama hat die Anmeldung abgelehnt (401). Die hinterlegten Zugangsdaten sind ungültig oder abgelaufen. Der Zugriff erfordert außerdem eine Named-Creator-Lizenz; Creator-Float-Lizenzen haben keinen API-Zugang.';
     case 403:
       return 'Keine Berechtigung fuer diese Ressource (403). Der hinterlegte Jama-Benutzer hat auf dieses Projekt oder Item keinen Zugriff.';
     case 404:

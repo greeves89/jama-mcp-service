@@ -4,6 +4,31 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.3.0] — 2026-09-04
+
+### Hinzugefuegt
+- **Jama-Verbindungen lassen sich im Dashboard bearbeiten.** Bisher gab es nur
+  Anlegen, Testen und Loeschen. Lief eine hinterlegte Anmeldung ab und Jama
+  antwortete mit 401, half nur Loeschen — und das scheitert, sobald API-Keys an
+  der Verbindung haengen. Der Zugang war damit dauerhaft kaputt, ohne Weg
+  zurueck. Name, Adresse, Produktivkennzeichen, Anfragelimit und Zugangsdaten
+  sind jetzt aenderbar.
+- Die Zugangsdaten bleiben beim Bearbeiten leer und optional: leer heisst
+  "unveraendert uebernehmen". Jama zeigt ein Client-Secret nur ein einziges Mal
+  an, niemand hat es also parat, um nur den Namen zu korrigieren. Beim Wechsel
+  der Anmeldeart sind neue Angaben dagegen Pflicht, weil ein Client-Secret kein
+  Passwort ist.
+
+### Behoben
+- **Ein frueheres Testergebnis blieb nach dem Aendern stehen.** Wer Adresse oder
+  Zugangsdaten wechselte, sah weiter das gruene "ok" der alten Konfiguration —
+  samt Pruefdatum, das sich auf etwas anderes bezog. Der Zustand faellt jetzt auf
+  "unbekannt" zurueck, bis wirklich neu geprueft wurde.
+- Ein PATCH auf eine unbekannte Verbindungs-ID lief in einen Zugriff auf
+  undefined und damit in einen 500er. Jetzt kommt sauber 404.
+- Zwei nutzersichtbare Meldungen rund um Verbindungen standen in
+  Ersatzschreibweise (ue/ae/oe) statt mit echten Umlauten.
+
 ## [1.2.3] — 2026-09-02
 
 ### Behoben

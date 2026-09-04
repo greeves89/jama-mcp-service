@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Cable, Plus, TestTube2, Trash2 } from 'lucide-react';
+import { Cable, Pencil, Plus, TestTube2, Trash2 } from 'lucide-react';
 import { api, type Connection, type ConnectionHealth } from '../api';
 import { Badge, Button, Card, Field, Notice, Spinner, Table, inputClass, zeit } from '../components/ui';
 
@@ -7,6 +7,9 @@ export default function ConnectionsPage() {
   const [verbindungen, setVerbindungen] = useState<Connection[]>();
   const [fehler, setFehler] = useState<string>();
   const [formularOffen, setFormularOffen] = useState(false);
+  // Die Verbindung, die gerade bearbeitet wird. Getrennt vom Anlegen-Formular,
+  // damit beide nicht gleichzeitig offen stehen koennen.
+  const [inBearbeitung, setInBearbeitung] = useState<Connection>();
   const [testErgebnis, setTestErgebnis] = useState<Record<string, ConnectionHealth>>({});
   const [testLaeuft, setTestLaeuft] = useState<string>();
 
@@ -52,7 +55,12 @@ export default function ConnectionsPage() {
             Datenbank und verlassen den Server nie.
           </p>
         </div>
-        <Button onClick={() => setFormularOffen(!formularOffen)}>
+        <Button
+          onClick={() => {
+            setInBearbeitung(undefined);
+            setFormularOffen(!formularOffen);
+          }}
+        >
           <Plus size={14} />
           Neue Verbindung
         </Button>
@@ -61,10 +69,30 @@ export default function ConnectionsPage() {
       {fehler && <Notice tone="bad">{fehler}</Notice>}
 
       {formularOffen && (
-        <NeueVerbindung
+        <VerbindungsFormular
           onAbbrechen={() => setFormularOffen(false)}
-          onAngelegt={() => {
+          onFertig={() => {
             setFormularOffen(false);
+            laden();
+          }}
+        />
+      )}
+
+      {inBearbeitung && (
+        <VerbindungsFormular
+          // Der Schluessel erzwingt ein frisches Formular beim Wechsel auf eine
+          // andere Verbindung — sonst blieben die Eingaben der vorigen stehen.
+          key={inBearbeitung.id}
+          verbindung={inBearbeitung}
+          onAbbrechen={() => setInBearbeitung(undefined)}
+          onFertig={() => {
+            setInBearbeitung(undefined);
+            // Ein frueheres Testergebnis gehoert nach dem Aendern weg: es galt
+            // fuer die alten Daten und stuende sonst irrefuehrend in der Zeile.
+            setTestErgebnis((vorher) => {
+              const { [inBearbeitung.id]: _verworfen, ...rest } = vorher;
+              return rest;
+            });
             laden();
           }}
         />
@@ -139,6 +167,16 @@ export default function ConnectionsPage() {
                       <TestTube2 size={13} />
                       {testLaeuft === verbindung.id ? 'Test läuft' : 'Testen'}
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setFormularOffen(false);
+                        setInBearbeitung(verbindung);
+                      }}
+                      title="Verbindung bearbeiten"
+                    >
+                      <Pencil size={13} />
+                    </Button>
                     <Button variant="danger" onClick={() => void loeschen(verbindung)} title="Löschen">
                       <Trash2 size={13} />
                     </Button>
@@ -153,18 +191,36 @@ export default function ConnectionsPage() {
   );
 }
 
-function NeueVerbindung({
-  onAngelegt,
+/**
+ * Formular zum Anlegen und zum Bearbeiten einer Verbindung.
+ *
+ * Beides in einem Bauteil, weil es dieselben Felder und dieselben Regeln sind.
+ * Der einzige echte Unterschied liegt bei den Zugangsdaten: Jama zeigt ein
+ * Client-Secret nur ein einziges Mal an, und wir geben es nie wieder heraus.
+ * Wer also den Namen korrigieren oder das Anfragelimit senken will, koennte ein
+ * Pflichtfeld "Secret" gar nicht ausfuellen. Beim Bearbeiten bleiben die Felder
+ * deshalb leer und optional — leer heisst: unveraendert uebernehmen.
+ */
+function VerbindungsFormular({
+  verbindung,
+  onFertig,
   onAbbrechen,
 }: {
-  onAngelegt: () => void;
+  verbindung?: Connection;
+  onFertig: () => void;
   onAbbrechen: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [isProduction, setIsProduction] = useState(false);
-  const [rateLimitRps, setRateLimitRps] = useState('6');
-  const [authArt, setAuthArt] = useState<'oauth' | 'basic'>('oauth');
+  const bearbeiten = verbindung !== undefined;
+
+  const [name, setName] = useState(verbindung?.name ?? '');
+  const [baseUrl, setBaseUrl] = useState(verbindung?.baseUrl ?? '');
+  const [isProduction, setIsProduction] = useState(verbindung?.isProduction ?? false);
+  const [rateLimitRps, setRateLimitRps] = useState(String(verbindung?.rateLimitRps ?? 6));
+  // authType kommt als freier Text aus der API; alles ausser "basic" wird als
+  // OAuth behandelt, weil das der Standardfall ist.
+  const [authArt, setAuthArt] = useState<'oauth' | 'basic'>(
+    verbindung?.authType === 'basic' ? 'basic' : 'oauth',
+  );
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [username, setUsername] = useState('');
@@ -172,31 +228,55 @@ function NeueVerbindung({
   const [fehler, setFehler] = useState<string>();
   const [laeuft, setLaeuft] = useState(false);
 
+  // Ein Wechsel der Anmeldeart macht die hinterlegten Daten unbrauchbar: ein
+  // Client-Secret ist kein Passwort. In dem Fall sind neue Angaben Pflicht,
+  // auch beim Bearbeiten.
+  const artGewechselt = bearbeiten && authArt !== (verbindung.authType === 'basic' ? 'basic' : 'oauth');
+  const zugangsdatenAngefasst =
+    authArt === 'oauth' ? clientId !== '' || clientSecret !== '' : username !== '' || password !== '';
+  const zugangsdatenPflicht = !bearbeiten || artGewechselt;
+
   const absenden = async (event: React.FormEvent) => {
     event.preventDefault();
     setLaeuft(true);
     setFehler(undefined);
+
+    const zugangsdaten =
+      authArt === 'oauth'
+        ? { type: 'oauth' as const, clientId, clientSecret }
+        : { type: 'basic' as const, username, password };
+
     try {
-      await api.createConnection({
-        name,
-        baseUrl,
-        isProduction,
-        rateLimitRps: Number.parseFloat(rateLimitRps),
-        credentials:
-          authArt === 'oauth'
-            ? { type: 'oauth', clientId, clientSecret }
-            : { type: 'basic', username, password },
-      });
-      onAngelegt();
+      if (bearbeiten) {
+        await api.updateConnection(verbindung.id, {
+          name,
+          baseUrl,
+          isProduction,
+          rateLimitRps: Number.parseFloat(rateLimitRps),
+          // Nur mitschicken, wenn wirklich etwas eingetragen wurde. Sonst
+          // ueberschriebe ein leeres Formular die funktionierenden Daten.
+          ...(zugangsdatenAngefasst ? { credentials: zugangsdaten } : {}),
+        });
+      } else {
+        await api.createConnection({
+          name,
+          baseUrl,
+          isProduction,
+          rateLimitRps: Number.parseFloat(rateLimitRps),
+          credentials: zugangsdaten,
+        });
+      }
+      onFertig();
     } catch (error) {
-      setFehler(error instanceof Error ? error.message : 'Anlegen fehlgeschlagen');
+      const text = error instanceof Error ? error.message : undefined;
+      setFehler(text ?? (bearbeiten ? 'Speichern fehlgeschlagen' : 'Anlegen fehlgeschlagen'));
     } finally {
       setLaeuft(false);
     }
   };
 
   return (
-    <Card title="Neue Jama-Verbindung">
+    <Card title={bearbeiten ? `Verbindung bearbeiten: ${verbindung.name}` : 'Neue Jama-Verbindung'}>
       <form onSubmit={absenden} className="space-y-4">
         {fehler && <Notice tone="bad">{fehler}</Notice>}
 
@@ -235,22 +315,63 @@ function NeueVerbindung({
           </Field>
         </div>
 
+        {bearbeiten && !artGewechselt && (
+          <Notice tone="info">
+            Die hinterlegten Zugangsdaten bleiben unverändert, solange die folgenden Felder leer
+            bleiben. Nur ausfüllen, wenn sie erneuert werden sollen — etwa nachdem Jama die
+            Anmeldung abgelehnt hat.
+          </Notice>
+        )}
+
+        {artGewechselt && (
+          <Notice tone="warn">
+            Die Anmeldeart wurde gewechselt. Die bisherigen Zugangsdaten passen nicht mehr, deshalb
+            sind neue Angaben erforderlich.
+          </Notice>
+        )}
+
         {authArt === 'oauth' ? (
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Client-ID">
-              <input className={inputClass} value={clientId} onChange={(e) => setClientId(e.target.value)} required />
+              <input
+                className={inputClass}
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && !artGewechselt ? 'unverändert' : undefined}
+              />
             </Field>
             <Field label="Client-Secret" hint="Jama zeigt das Secret nur einmal an.">
-              <input type="password" className={inputClass} value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} required />
+              <input
+                type="password"
+                className={inputClass}
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && !artGewechselt ? 'unverändert' : undefined}
+              />
             </Field>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Benutzername">
-              <input className={inputClass} value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <input
+                className={inputClass}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && !artGewechselt ? 'unverändert' : undefined}
+              />
             </Field>
             <Field label="Passwort">
-              <input type="password" className={inputClass} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <input
+                type="password"
+                className={inputClass}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required={zugangsdatenPflicht || zugangsdatenAngefasst}
+                placeholder={bearbeiten && !artGewechselt ? 'unverändert' : undefined}
+              />
             </Field>
           </div>
         )}
@@ -272,10 +393,23 @@ function NeueVerbindung({
           schlägt jeder Aufruf fehl — der Verbindungstest zeigt den Lizenztyp an.
         </Notice>
 
+        {bearbeiten && (baseUrl !== verbindung.baseUrl || zugangsdatenAngefasst) && (
+          <Notice tone="warn">
+            Weil sich Adresse oder Zugangsdaten ändern, gilt das bisherige Testergebnis nicht mehr.
+            Der Zustand fällt auf „unbekannt" zurück — bitte nach dem Speichern erneut testen.
+          </Notice>
+        )}
+
         <div className="flex gap-2">
           <Button type="submit" disabled={laeuft}>
             <Cable size={14} />
-            {laeuft ? 'Wird angelegt' : 'Verbindung anlegen'}
+            {laeuft
+              ? bearbeiten
+                ? 'Wird gespeichert'
+                : 'Wird angelegt'
+              : bearbeiten
+                ? 'Änderungen speichern'
+                : 'Verbindung anlegen'}
           </Button>
           <Button variant="secondary" onClick={onAbbrechen}>
             Abbrechen

@@ -16,6 +16,7 @@ import {
   validateSession,
 } from './auth.js';
 import { encryptCredentials } from '../service/keys.js';
+import { baueVerbindungsUpdate } from '../service/connections.js';
 import {
   getSettings,
   invalidateSettingsCache,
@@ -319,21 +320,20 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
         const body = verbindungSchema.partial().parse(request.body);
 
-        const update: Record<string, unknown> = {};
-        if (body.name !== undefined) update.name = body.name;
-        if (body.baseUrl !== undefined) update.baseUrl = body.baseUrl.replace(/\/+$/, '');
-        if (body.isProduction !== undefined) update.isProduction = body.isProduction;
-        if (body.rateLimitRps !== undefined) update.rateLimitRps = body.rateLimitRps;
-        if (body.credentials !== undefined) {
-          update.credentialsEnc = encryptCredentials(body.credentials);
-          update.authType = body.credentials.type;
-        }
+        const update = baueVerbindungsUpdate(body, encryptCredentials);
 
         const [updated] = await getDb()
           .update(jamaConnections)
           .set(update)
           .where(eq(jamaConnections.id, id))
           .returning();
+
+        // Ohne diese Pruefung liefe eine unbekannte ID in einen Zugriff auf
+        // undefined und damit in einen 500er, der nach einem Serverfehler
+        // aussieht statt nach einem Tippfehler in der Adresse.
+        if (!updated) {
+          throw new ServiceError('CONNECTION_MISSING', 'Diese Jama-Verbindung existiert nicht.', 404);
+        }
 
         await recordAudit(
           {
@@ -346,7 +346,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           { type: 'admin', ip: clientIp(request) },
         );
 
-        const { credentialsEnc: _unused, ...rest } = updated!;
+        const { credentialsEnc: _unused, ...rest } = updated;
         return rest;
       },
       true,
@@ -369,7 +369,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         if (anzahl > 0) {
           throw new ServiceError(
             'VALIDATION',
-            `Die Verbindung wird noch von ${anzahl} API-Keys genutzt. Diese zuerst loeschen oder umhaengen.`,
+            `Die Verbindung wird noch von ${anzahl} API-Keys genutzt. Diese zuerst löschen oder umhängen.`,
             409,
           );
         }
