@@ -4,6 +4,34 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.7.0] — 2026-09-04
+
+### Behoben
+- **Sets und Ordner liessen sich nicht anlegen.** Jama verlangt fuer beide
+  zwingend den Typ der spaeteren Kinder ("Sets and Folders must always have a
+  child type specified"); `jama_create_container` uebermittelte ihn nicht und
+  hatte auch kein Feld dafuer. Jeder Versuch endete mit 400, und zwar
+  unabhaengig von den Schreibrechten. `childItemType` ist nun Bestandteil des
+  Tools.
+- Der Schluessel-Praefix eines Sets laesst sich ueber `setKey` mitgeben.
+
+### Hinzugefuegt
+- `childItemType` versteht die numerische ID, den Typschluessel ("RS") und den
+  Anzeigenamen ("Requirement Specification Item"). Aufrufer kennen die ID fast
+  nie — in der Oberflaeche steht der Name, in Document Keys der Schluessel.
+- Fehlt die Angabe oder ist sie unbekannt, nennt die Fehlermeldung die
+  ItemTypes, die diese Instanz tatsaechlich fuehrt, mit Name, Schluessel und ID.
+  Das erspart den Umweg ueber einen Aufruf, der sicher scheitert.
+- `SchemaResolver.findItemType()` als gemeinsame Aufloesung fuer alle Werkzeuge.
+
+### Hinweis
+Die Zuordnung von Typen zu IDs wird ausschliesslich zur Laufzeit aus der
+angebundenen Instanz gelesen und ist nirgends im Code hinterlegt: Die IDs
+unterscheiden sich zwischen Instanzen, und viele Installationen fuehren
+abgeloeste Typen parallel zu ihren Nachfolgern weiter. Eine gepflegte Liste
+waere anderswo schlicht falsch und wuerde Items im falschen Typ anlegen — ein
+Fehler, der erst Wochen spaeter beim Auswerten auffaellt.
+
 ## [1.6.0] — 2026-09-04
 
 ### Hinzugefuegt

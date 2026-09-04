@@ -58,6 +58,38 @@ export class SchemaResolver {
     return types.find((type) => type.id === itemTypeId);
   }
 
+  /**
+   * Findet einen ItemType anhand von ID, Typschluessel oder Anzeigename.
+   *
+   * Aufrufer kennen selten die numerische ID: In der Oberflaeche steht der
+   * Anzeigename ("Requirement Specification Item"), in Document Keys der
+   * Schluessel ("PRQ"). Beides hier aufzuloesen erspart es jedem einzelnen
+   * Werkzeug, die Typliste selbst zu durchsuchen.
+   */
+  async findItemType(bezeichnung: number | string): Promise<JamaItemType | undefined> {
+    const types = await this.getItemTypes();
+
+    if (typeof bezeichnung === 'number') {
+      return types.find((type) => type.id === bezeichnung);
+    }
+
+    const gesucht = bezeichnung.trim();
+    if (gesucht === '') return undefined;
+
+    // Eine Zahl in Textform meint dieselbe ID.
+    if (/^\d+$/.test(gesucht)) {
+      const perId = types.find((type) => type.id === Number(gesucht));
+      if (perId) return perId;
+    }
+
+    const klein = gesucht.toLowerCase();
+    return (
+      types.find((type) => (type.typeKey ?? '').toLowerCase() === klein) ??
+      types.find((type) => (type.display ?? '').toLowerCase() === klein) ??
+      types.find((type) => (type.displayPlural ?? '').toLowerCase() === klein)
+    );
+  }
+
   async getRelationshipTypes(): Promise<JamaRelationshipType[]> {
     return this.cached(['relationshiptypes'], CACHE_TTL_MS.masterData, async () => {
       const { items } = await this.http.paginate<JamaRelationshipType>('relationshiptypes', {

@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { CONFIRM_DESCRIPTION, defineTool, type ToolDefinition } from '../types.js';
+import { CONFIRM_DESCRIPTION, defineTool, type ToolContext, type ToolDefinition } from '../types.js';
 import { assertProjectAllowed } from '../guards.js';
 import { buildMappingContext, collectItemTypeIds, toItemDetail } from '../../jama/mapping.js';
 import { resolveItem } from './core.js';
-import type { JamaItem } from '../../jama/types.js';
+import type { JamaItem, JamaItemType } from '../../jama/types.js';
 import { ServiceError } from '../../shared/errors.js';
 
 /**
@@ -118,12 +118,33 @@ const createItem = defineTool({
   },
 });
 
+/**
+ * Listet die ItemTypes auf, die diese Jama-Instanz tatsaechlich kennt.
+ *
+ * Bewusst zur Laufzeit abgefragt und nirgends fest hinterlegt: Die numerischen
+ * IDs unterscheiden sich zwischen Instanzen, und viele Installationen fuehren
+ * abgeloeste Typen parallel zu ihren Nachfolgern weiter. Eine im Code gepflegte
+ * Liste waere anderswo schlicht falsch und wuerde zu Items im falschen Typ
+ * fuehren — ein Fehler, der erst Wochen spaeter beim Auswerten auffaellt.
+ */
+async function verfuegbareTypen(context: ToolContext): Promise<string> {
+  const typen = await context.client.schema.getItemTypes();
+  const liste = typen
+    .filter((typ: JamaItemType) => typ.typeKey || typ.display)
+    .map((typ: JamaItemType) => `${typ.display ?? typ.typeKey} (${typ.typeKey ?? '?'}, ID ${typ.id})`)
+    .join('; ');
+
+  return liste.length > 0
+    ? `In dieser Instanz verfuegbar: ${liste}.`
+    : 'Die Typliste dieser Instanz liess sich nicht abrufen.';
+}
+
 const createContainer = defineTool({
   name: 'jama_create_container',
   toolset: 'write',
   title: 'Ordner, Set oder Komponente anlegen',
   description:
-    'Legt einen Strukturknoten an — Ordner, Set oder Komponente. Anders als bei jama_create_item muss der ItemType nicht bekannt sein: der passende Typ wird selbst ermittelt. Damit laesst sich eine Projektstruktur aufbauen, bevor die eigentlichen Inhalte entstehen.',
+    'Legt einen Strukturknoten an — Ordner, Set oder Komponente. Anders als bei jama_create_item muss der ItemType nicht bekannt sein: der passende Typ wird selbst ermittelt. Damit laesst sich eine Projektstruktur aufbauen, bevor die eigentlichen Inhalte entstehen. FUER SET UND ORDNER ist zusaetzlich childItemType erforderlich — Jama lehnt beides sonst ab ("Sets and Folders must always have a child type specified"). Die zulaessigen Typen liefert jama_get_project_schema.',
   inputSchema: {
     projectId: z.number().int().describe('Zielprojekt.'),
     kind: z
@@ -138,6 +159,18 @@ const createContainer = defineTool({
       .int()
       .optional()
       .describe('Uebergeordneter Knoten. Ohne Angabe entsteht der Knoten auf oberster Projektebene.'),
+    childItemType: z
+      .union([z.number().int(), z.string()])
+      .optional()
+      .describe(
+        'ZWINGEND FUER kind="set" UND kind="folder": welche Art von Items der Knoten aufnimmt. Angabe als numerische ID, als Typschluessel ("RS") oder als Anzeigename ("Requirement Specification Item"). Ohne diese Angabe weist Jama ab: "Sets and Folders must always have a child type specified". Achtung, Instanzen fuehren oft abgeloeste Typen parallel weiter — der Schluessel mit dem Zusatz "[old]" im Namen ist in aller Regel der falsche. Die verfuegbaren Typen nennt jama_get_project_schema.',
+      ),
+    setKey: z
+      .string()
+      .optional()
+      .describe(
+        'Optionaler Schluessel-Praefix des Sets, der spaeter in den Document Keys der enthaltenen Items erscheint (etwa "PRQ" fuer PRQ-123). Ohne Angabe vergibt Jama ihn selbst. Nicht zu verwechseln mit childItemType: dies hier ist ein frei gewaehltes Kuerzel, kein ItemType.',
+      ),
   },
   mutating: true,
   handler: async (args, context) => {
@@ -171,11 +204,42 @@ const createContainer = defineTool({
       );
     }
 
+    // Jama verlangt fuer Sets und Ordner zwingend den Typ der spaeteren Kinder
+    // ("Sets and Folders must always have a child type specified"). Nur
+    // Komponenten kommen ohne aus.
+    const brauchtKindtyp = args.kind === 'set' || args.kind === 'folder';
+    let kindTypId: number | undefined;
+
+    if (args.childItemType !== undefined) {
+      const gefunden = await context.client.schema.findItemType(args.childItemType);
+      if (!gefunden) {
+        throw new ServiceError(
+          'VALIDATION',
+          `Der ItemType "${args.childItemType}" existiert in dieser Jama-Instanz nicht. ${await verfuegbareTypen(context)}`,
+          400,
+        );
+      }
+      kindTypId = gefunden.id;
+    } else if (brauchtKindtyp) {
+      // Ohne Angabe braeuchte es einen Aufruf, der sicher scheitert. Die
+      // Auswahl gleich mitzuliefern erspart den Umweg ueber die Fehlermeldung
+      // von Jama, die nur sagt, dass etwas fehlt, aber nicht was zur Wahl steht.
+      throw new ServiceError(
+        'VALIDATION',
+        `Fuer "${args.kind}" verlangt Jama den Typ der enthaltenen Items (childItemType). ${await verfuegbareTypen(context)}`,
+        400,
+      );
+    }
+
+    const felder: Record<string, unknown> = { name: args.name, description: args.description };
+    if (args.setKey !== undefined) felder.setKey = args.setKey;
+
     const body: Record<string, unknown> = {
       project: args.projectId,
       itemType: treffer.id,
-      fields: { name: args.name, description: args.description },
+      fields: felder,
     };
+    if (kindTypId !== undefined) body.childItemType = kindTypId;
     if (args.parentItemId !== undefined) body.location = { parent: { item: args.parentItemId } };
 
     const response = await context.client.http.request<{ id?: number } | number>('items', {
@@ -194,7 +258,14 @@ const createContainer = defineTool({
     });
 
     return {
-      data: { angelegt: true, id, art: args.kind, itemTypeId: treffer.id, name: args.name },
+      data: {
+        angelegt: true,
+        id,
+        art: args.kind,
+        itemTypeId: treffer.id,
+        childItemTypeId: kindTypId,
+        name: args.name,
+      },
       projectId: args.projectId,
     };
   },
