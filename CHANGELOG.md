@@ -4,6 +4,77 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.16.0] — 2026-09-23
+
+Die aufrufende Person wird ab hier **nachgewiesen** statt behauptet.
+
+### Der Anlass
+
+Die Personenmatrix aus 1.15.0 braucht eine Person. Es kam keine an: Open WebUI
+reicht die Benutzerkopfzeilen nicht an MCP-Server ueber Streamable HTTP weiter
+(open-webui Nr. 21134 / 21184, offen seit Februar 2026), und auch Platzhalter
+wie `{{USER_EMAIL}}` in eigenen Kopfzeilen werden woertlich verschickt statt
+ersetzt. Der naheliegende Ausweg ueber einen vorgelagerten Proxy scheitert
+daran, dass nur Open WebUI weiss, wer fragt.
+
+Open WebUI unterstuetzt fuer MCP-Verbindungen dagegen **OAuth 2.1**. Damit ist
+die Identitaet ein Nachweis und keine Auskunft — genau das, was die Anforderung
+verlangt, dass sich die Grenze nicht durch geschicktes Formulieren umgehen
+laesst.
+
+### Hinzugefuegt
+
+- **Anmeldung ueber den Firmenzugang.** Der Dienst ist die geschuetzte
+  Ressource, der Firmenzugang der Anmeldedienst. **Wir bauen keinen
+  Anmeldedienst, wir pruefen nur Token.**
+- **Entdeckungspfad** `/.well-known/oauth-protected-resource` nach RFC 9728,
+  unter beiden gebraeuchlichen Namen — am Wurzelpfad und mit angehaengtem
+  Ressourcenpfad. Welchen ein Client zuerst probiert, ist nicht festgelegt, und
+  ein 404 an dieser Stelle bricht die Anmeldung ohne erkennbaren Grund ab.
+- **`WWW-Authenticate` bei jeder Ablehnung am MCP-Pfad.** Ohne diesen Kopf
+  findet ein Client den Anmeldedienst nie.
+- **Tokenpruefung** in `src/auth/entra.ts`, ohne zusaetzliche Abhaengigkeit.
+  Geprueft werden Verfahren, Signatur, Aussteller, Empfaenger, Laufzeit und
+  Berechtigung — das Verfahren zuerst und festgenagelt auf RS256.
+- **Konfiguration ueber die Umgebung** (`ENTRA_ISSUER`, `ENTRA_AUDIENCE`,
+  `ENTRA_SCOPE`, `ENTRA_JWKS_URL`), nicht ueber das Dashboard: Der Aussteller
+  entscheidet, wem dieser Dienst glaubt. Wer ihn zur Laufzeit aendern kann,
+  stellt sich eine eigene Identitaet aus.
+
+### Geaendert
+
+- **Zwei Wege zur Identitaet, ein Ziel.** Zugangsschluessel und Token muenden in
+  dieselbe Rechtelage. Nur beim Token gilt die Person als erkannt.
+- Ein gueltiges Token ohne Entsprechung im Benutzerspiegel wird **abgewiesen**
+  statt auf die Behandlung fuer Unbekannte zurueckzufallen. Sonst waere die
+  Anmeldung eine Verschlechterung gegenueber gar keiner.
+- Das Aufruesten eines Zugangs steht jetzt an einer Stelle
+  (`ruesteZugangAus` in `src/service/keys.ts`) und wird von beiden Wegen
+  benutzt. Zwei Auslegungen davon, was ein Zugang mitbringt, waeren irgendwann
+  voneinander abgewichen.
+- Die Ursache eines fehlgeschlagenen Entschluesselns gehoert ins Protokoll und
+  nicht in die Antwort nach aussen.
+
+### Sicherheit
+
+Die Tokenpruefung ist mit 38 Tests abgedeckt, darunter die Angriffe, die genau
+hier greifen: `alg: none`, `HS256` mit dem oeffentlichen Schluessel als
+Geheimnis, fremder Signaturschluessel, nachtraeglich getauschte Nutzlast,
+fremder Aussteller, Empfaengerfeld mit mehreren Werten ohne den eigenen. Jede
+Ablehnung meldet nach aussen denselben Text — welcher Teil nicht stimmte, geht
+niemanden ausserhalb etwas an.
+
+Zusaetzlich abgesichert durch einen Mutationslauf: zehn gezielte Schwaechungen
+der Pruefung wurden jede von mindestens einem Test gefangen.
+
+### Zu beachten beim Einspielen
+
+- **Ohne Konfiguration bleibt der Weg abgeschaltet** und alles verhaelt sich wie
+  heute. Das Einschalten ist eine bewusste Handlung.
+- Auf Seiten des Firmenzugangs braucht es eine Registrierung des Dienstes als
+  Schnittstelle mit einer Kennung und einer Berechtigung, und den Client als
+  autorisiert eingetragen. Eine dynamische Registrierung gibt es dort nicht.
+
 ## [1.15.0] — 2026-09-23
 
 Rechte haengen ab hier an der **Person**, nicht mehr nur am Zugang. Grundlage

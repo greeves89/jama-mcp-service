@@ -70,6 +70,43 @@ const schema = z.object({
   USAGE_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(180),
 
   GLOBAL_READ_ONLY: booleanish.default(false),
+
+  /**
+   * Anmeldung ueber den Firmenzugang (Entra ID).
+   *
+   * Dieser Dienst ist dabei ausschliesslich geschuetzte Ressource: Er stellt
+   * keine Token aus, er prueft sie (src/auth/entra.ts). ENTRA_ISSUER
+   * entscheidet, WEM dieser Dienst ueberhaupt glaubt; ENTRA_AUDIENCE bindet
+   * ein Token an genau diese Ressource, sodass ein Token fuer einen anderen
+   * Dienst desselben Mandanten hier nicht taugt.
+   *
+   * Beides steht in der Umgebung und bewusst NICHT in der Datenbank: Wer den
+   * Aussteller zur Laufzeit ueber das Dashboard umstellen koennte, koennte
+   * sich seine Identitaet selbst ausstellen und anschliessend als jede
+   * beliebige Person auftreten. Die ganze Pruefung haengt an diesen beiden
+   * Zeichenketten.
+   *
+   * Fehlt eine von beiden, bleibt der Weg abgeschaltet und alles verhaelt sich
+   * wie bisher ueber den Zugangsschluessel. Einschalten ist eine bewusste
+   * Handlung an der Umgebung, kein Klick.
+   */
+  ENTRA_ISSUER: z.string().url().optional(),
+  ENTRA_AUDIENCE: z.string().min(1).optional(),
+
+  /**
+   * Verlangte Berechtigung; sie muss in scp oder roles des Token stehen.
+   *
+   * Eine gueltige Anmeldung am Firmenzugang ist noch keine Erlaubnis fuer
+   * diesen Dienst — ohne diese Huerde kaeme jede Person des Mandanten herein,
+   * sobald sie irgendein Token fuer diese Ressource erhaelt.
+   */
+  ENTRA_SCOPE: z.string().min(1).default('mcp.use'),
+
+  /**
+   * Nur noetig, wenn der Schluesselsatz nicht an der fuer Entra ueblichen
+   * Stelle liegt; sonst wird die Adresse aus dem Aussteller abgeleitet.
+   */
+  ENTRA_JWKS_URL: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

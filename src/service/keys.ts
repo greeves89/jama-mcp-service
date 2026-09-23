@@ -10,6 +10,7 @@ import {
   safeCompareHex,
 } from '../shared/crypto.js';
 import { getConfig } from '../shared/config.js';
+import { logger } from '../shared/logger.js';
 import { ensureCore, parseToolsets, type Toolset } from '../shared/toolsets.js';
 import { jamaCredentialsSchema, type JamaCredentials } from '../jama/auth.js';
 import { JamaClient } from '../jama/client.js';
@@ -76,7 +77,22 @@ export async function resolveApiKey(presented: string | undefined): Promise<Reso
     );
   }
 
-  const connectionRows = await db
+  return ruesteZugangAus(key);
+}
+
+/**
+ * Macht aus einem Zugang alles, was ein Aufruf braucht: Verbindung,
+ * entschluesselte Zugangsdaten, Toolsets und den Schreibschutz.
+ *
+ * Getrennt von `resolveApiKey`, weil es zwei Wege zu einem Zugang gibt und nur
+ * einer davon ein vorgelegtes Geheimnis hat: Wer sich ueber den Firmenzugang
+ * anmeldet, weist seine Identitaet mit einem Token nach und waehlt den Zugang
+ * anschliessend — ein Schluesselvergleich findet dort nie statt. Beide Wege
+ * muenden hier, damit es nicht zwei Auslegungen davon gibt, was ein Zugang
+ * mitbringt. Die zweite waere die, die irgendwann von der ersten abweicht.
+ */
+export async function ruesteZugangAus(key: ApiKey): Promise<ResolvedKey> {
+  const connectionRows = await getDb()
     .select()
     .from(jamaConnections)
     .where(eq(jamaConnections.id, key.connectionId))
@@ -86,7 +102,7 @@ export async function resolveApiKey(presented: string | undefined): Promise<Reso
   if (!connection) {
     throw new ServiceError(
       'CONNECTION_MISSING',
-      'Die dem Key zugeordnete Jama-Verbindung existiert nicht mehr.',
+      'Die dem Zugang zugeordnete Jama-Verbindung existiert nicht mehr.',
       500,
     );
   }
@@ -121,11 +137,13 @@ function decryptCredentials(key: ApiKey, connection: JamaConnection): JamaCreden
   try {
     raw = decryptSecret(encrypted, encryptionKey);
   } catch (error) {
+    // Die Ursache gehoert ins Protokoll des Betriebs, nicht in eine Antwort
+    // nach aussen: Wer entschluesseln will, soll aus der Fehlermeldung nichts
+    // darueber lernen, warum es misslingt.
+    logger.error({ err: error, apiKeyId: key.id }, 'Jama-Zugangsdaten nicht entschluesselbar');
     throw new ServiceError(
       'CONNECTION_MISSING',
-      `Die hinterlegten Jama-Zugangsdaten liessen sich nicht entschluesseln: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      'Die hinterlegten Jama-Zugangsdaten ließen sich nicht entschlüsseln.',
       500,
     );
   }

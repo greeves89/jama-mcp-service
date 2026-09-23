@@ -1,4 +1,5 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
@@ -7,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { registerAdminRoutes } from './admin/routes.js';
 import { pruneAuthTables } from './admin/auth.js';
 import { registerMcpRoute } from './mcp/http-route.js';
+import { entraEingerichtet } from './auth/entra.js';
 import { closeDb, pingDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { getSettings } from './service/settings.js';
@@ -28,6 +30,50 @@ import { allTools } from './mcp/registry.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Entdeckungsdokument der geschuetzten Ressource (RFC 9728).
+ *
+ * Ohne Anmeldung erreichbar, und das muss so sein: Erst hier erfaehrt ein
+ * Client, bei wem er ein Token holen soll und fuer welche Ressource. Der 401
+ * am MCP-Pfad verweist mit "WWW-Authenticate: Bearer resource_metadata=..."
+ * hierher; beides zusammen ist die Kette, ueber die sich ein Client selbst
+ * anmelden kann.
+ *
+ * Ist der Firmenzugang nicht eingerichtet, antwortet der Pfad mit 404. Ein
+ * Dokument, das auf einen leeren Aussteller verweist, schickt Clients in eine
+ * Anmeldung, die es nicht gibt — sie scheiterten dann an einer Stelle, an der
+ * niemand die Ursache vermutet.
+ *
+ * Getrennt exportiert, damit die Form ohne Datenbank und ohne Admin-Oberflaeche
+ * pruefbar bleibt (tests/entdeckung.test.ts).
+ */
+export function registriereEntdeckung(app: FastifyInstance): void {
+  const ausliefern = async (_request: unknown, reply: FastifyReply) => {
+    if (!entraEingerichtet()) {
+      return reply.status(404).send({ fehler: 'Nicht gefunden' });
+    }
+
+    const config = getConfig();
+    return reply.send({
+      resource: config.ENTRA_AUDIENCE,
+      authorization_servers: [config.ENTRA_ISSUER],
+      scopes_supported: [config.ENTRA_SCOPE],
+      bearer_methods_supported: ['header'],
+    });
+  };
+
+  app.get('/.well-known/oauth-protected-resource', ausliefern);
+
+  // Dieselbe Auskunft noch einmal unter dem pfadbehafteten Namen.
+  //
+  // RFC 9728 kennt beide Formen: den Wurzelpfad und einen, der den Pfad der
+  // geschuetzten Ressource anhaengt. Welche ein Client zuerst probiert, ist
+  // nicht festgelegt — und ein Client, der die falsche waehlt, bekommt einen
+  // 404 und bricht die Anmeldung ab, ohne dass jemand den Grund sieht. Eine
+  // zweite Zeile ist billiger als dieser Ausfall.
+  app.get('/.well-known/oauth-protected-resource/mcp', ausliefern);
+}
 
 export async function createServer() {
   const config = getConfig();
@@ -122,6 +168,7 @@ export async function createServer() {
     });
   });
 
+  registriereEntdeckung(app);
   registerMcpRoute(app);
   await registerAdminRoutes(app);
 
