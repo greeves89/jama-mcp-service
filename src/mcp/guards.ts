@@ -108,6 +108,37 @@ export function filterByAllowedProjects<T extends { project?: number }>(
   return { items: allowed, removed: items.length - allowed.length };
 }
 
+/**
+ * Prueft die Projektfreigabe, ohne abzubrechen.
+ *
+ * Gebraucht dort, wo ein gesperrtes Element nicht zum Fehler fuehren soll,
+ * sondern gekennzeichnet werden muss — etwa in einer Nachweiskette, in der ein
+ * fehlender Knoten eine Luecke vortaeuschen wuerde, die es gar nicht gibt.
+ */
+export function istProjektErlaubt(projectId: number | undefined, context: ToolContext): boolean {
+  if (context.allowedProjectIds.length === 0) return true;
+  if (projectId === undefined) return true;
+  return context.allowedProjectIds.includes(projectId);
+}
+
+/**
+ * Meldet die Trefferzahl so, wie sie nach der Projektfilterung noch gilt.
+ *
+ * Jama zaehlt vor der Filterung. Wuerde diese Zahl unveraendert
+ * weitergereicht, liesse sich daraus ablesen, wie viele Treffer es in
+ * gesperrten Projekten gibt — eine Suche nach einem Kundennamen oder einem
+ * Stichwort wuerde dessen Vorkommen in fremden Projekten verraten, ohne dass
+ * ein einziges Item sichtbar wird. Fuer einen beschraenkten Zugang zaehlt
+ * deshalb nur, was er auch sehen darf.
+ */
+export function sichtbareTrefferzahl(
+  gesamtLautJama: number,
+  sichtbar: number,
+  context: ToolContext,
+): number {
+  return context.allowedProjectIds.length === 0 ? gesamtLautJama : sichtbar;
+}
+
 const SECRET_KEYS = /pass|secret|token|key|pin|credential/i;
 
 /** Entfernt Geheimnisse aus Aufrufparametern, bevor sie ins Audit-Log gehen. */

@@ -494,6 +494,17 @@ const runReport = defineTool({
   handler: async (args, context) => {
     assertProjectAllowed(args.projectId, context);
 
+    // Die Item-Kennungen gehen ungeprueft in den Report. Ob Jama daraus etwas
+    // ausserhalb des angegebenen Projekts erzeugt, entscheidet dann Jama — der
+    // Dienst selbst darf das nicht offenlassen.
+    for (const itemId of args.itemIds ?? []) {
+      const item = await context.client.http.getOptional<JamaItem>(`items/${itemId}`);
+      if (!item) {
+        throw new ServiceError('JAMA_NOT_FOUND', `Item ${itemId} existiert nicht.`, 404);
+      }
+      assertProjectAllowed(item.project, context);
+    }
+
     const response = await context.client.http.request<Record<string, unknown>>(
       `reports/${args.reportId}`,
       {

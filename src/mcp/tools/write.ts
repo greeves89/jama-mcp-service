@@ -719,6 +719,23 @@ const duplicateItem = defineTool({
     if (!item) throw new ServiceError('JAMA_NOT_FOUND', `Item ${args.itemId} existiert nicht.`, 404);
     assertProjectAllowed(item.project, context);
 
+    // Das Ziel wird nur als Kennung uebergeben; ohne diese Pruefung liesse sich
+    // in ein fremdes Projekt hinein duplizieren. jama_move_item prueft beide
+    // Seiten bereits so — hier fehlte es.
+    if (args.targetParentItemId !== undefined) {
+      const ziel = await context.client.http.getOptional<JamaItem>(
+        `items/${args.targetParentItemId}`,
+      );
+      if (!ziel) {
+        throw new ServiceError(
+          'JAMA_NOT_FOUND',
+          `Zielknoten ${args.targetParentItemId} existiert nicht.`,
+          404,
+        );
+      }
+      assertProjectAllowed(ziel.project, context);
+    }
+
     const body: Record<string, unknown> = {};
     if (args.targetParentItemId !== undefined) {
       body.location = { parent: { item: args.targetParentItemId } };

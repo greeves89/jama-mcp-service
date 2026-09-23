@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { defineTool, PAGINATION_DESCRIPTION, type ToolDefinition } from '../types.js';
-import { assertProjectAllowed } from '../guards.js';
+import {
+  assertProjectAllowed,
+  filterByAllowedProjects,
+  istProjektErlaubt,
+} from '../guards.js';
 import { buildMappingContext, collectItemTypeIds, toItemSummary } from '../../jama/mapping.js';
 import { resolveItem } from './core.js';
 import type { JamaItem, JamaRelationship } from '../../jama/types.js';
@@ -67,10 +71,15 @@ const getRelationships = defineTool({
         }));
       }
 
-      const { items: related } = await context.client.http.paginate<JamaItem>(
+      const { items: alleVerknuepften } = await context.client.http.paginate<JamaItem>(
         `items/${item.id}/${richtung}related`,
         { limit: args.limit },
       );
+      // Jama erlaubt Beziehungen ueber Projektgrenzen hinweg. Ohne diese
+      // Filterung gingen Name, Document Key und Status eines Items aus einem
+      // fremden Projekt mit hinaus — der einzige Weg, auf dem nicht nur Zahlen
+      // oder Kennungen, sondern echte Inhalte die Mandantengrenze passieren.
+      const { items: related } = filterByAllowedProjects(alleVerknuepften, context);
       const mapping = await buildMappingContext(
         context.client.schema,
         collectItemTypeIds(related),
@@ -158,6 +167,8 @@ const traceChain = defineTool({
     interface ChainNode {
       id: number;
       documentKey?: string;
+      /** Gesetzt, wenn der Knoten in einem nicht freigegebenen Projekt liegt. */
+      nichtEinsehbar?: boolean;
       tiefe: number;
       ueberBeziehung?: string;
       suspect?: boolean;
@@ -205,11 +216,17 @@ const traceChain = defineTool({
         budget -= 1;
 
         const next = await context.client.http.getOptional<JamaItem>(`items/${nextId}`);
-        if (next) collected.push(next);
+        // Beziehungen reichen in Jama ueber Projektgrenzen. Ein Knoten aus
+        // einem gesperrten Projekt bleibt in der Kette stehen, aber ohne seine
+        // Bezeichner: Wuerde er weggelassen, taeuschte die Kette eine Luecke in
+        // der Nachweisfuehrung vor, die es gar nicht gibt.
+        const einsehbar = istProjektErlaubt(next?.project, context);
+        if (next && einsehbar) collected.push(next);
 
         nodes.push({
           id: nextId,
-          documentKey: next?.documentKey,
+          documentKey: einsehbar ? next?.documentKey : undefined,
+          nichtEinsehbar: einsehbar ? undefined : true,
           tiefe: depth + 1,
           ueberBeziehung:
             relationship.relationshipType === undefined
@@ -331,10 +348,13 @@ const traceMatrix = defineTool({
         `items/${source.id}/${args.direction}related`,
         { limit: 50 },
       );
+      // Auch hier reichen Beziehungen ueber Projektgrenzen: Ohne Filterung
+      // stuenden Bezeichner fremder Items in der Matrix.
+      const { items: erlaubt } = filterByAllowedProjects(related, context);
       const filtered =
         args.targetItemTypeId === undefined
-          ? related
-          : related.filter((item) => item.itemType === args.targetItemTypeId);
+          ? erlaubt
+          : erlaubt.filter((item) => item.itemType === args.targetItemTypeId);
       relatedByItem.set(source.id, filtered);
       allRelated.push(...filtered);
     }

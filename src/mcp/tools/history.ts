@@ -329,13 +329,38 @@ const getActivities = defineTool({
     adminOnly: z
       .boolean()
       .default(false)
-      .describe('Administrative Vorgaenge statt Projektaktivitaeten. Erfordert Adminrechte in Jama.'),
+      .describe(
+        'Administrative Vorgaenge der gesamten Instanz statt Projektaktivitaeten. Erfordert Adminrechte in Jama und steht einem auf bestimmte Projekte beschraenkten Zugang nicht zur Verfuegung.',
+      ),
     since: z.string().optional().describe('Nur Aktivitaeten ab diesem Zeitpunkt (ISO 8601).'),
     limit: z.number().int().min(1).max(200).default(50).describe(PAGINATION_DESCRIPTION),
   },
   mutating: false,
   handler: async (args, context) => {
     if (args.projectId !== undefined) assertProjectAllowed(args.projectId, context);
+
+    // Der administrative Strom umfasst die gesamte Instanz: angelegte
+    // Benutzer, geaenderte Rechte, neue Projekte — ueber alle Mandanten hinweg.
+    // Fuer einen Zugang, der ausdruecklich auf bestimmte Projekte beschraenkt
+    // ist, waere das ein Ausbruch aus genau dieser Grenze, und zwar einer, der
+    // mehr preisgibt als die Projektinhalte selbst.
+    if (args.adminOnly && context.allowedProjectIds.length > 0) {
+      throw new ServiceError(
+        'PROJECT_FORBIDDEN',
+        'Dieser Zugang ist auf bestimmte Projekte beschraenkt. Der administrative Aktivitaetsstrom umfasst die gesamte Instanz und steht ihm deshalb nicht zur Verfuegung.',
+        403,
+      );
+    }
+
+    // Auch der Weg ueber ein einzelnes Item braucht die Pruefung: Angegeben
+    // wird nur dessen Kennung, das Projekt steht nicht im Aufruf.
+    if (args.itemId !== undefined) {
+      const item = await context.client.http.getOptional<JamaItem>(`items/${args.itemId}`);
+      if (!item) {
+        throw new ServiceError('JAMA_NOT_FOUND', `Item ${args.itemId} existiert nicht.`, 404);
+      }
+      assertProjectAllowed(item.project, context);
+    }
 
     const path = args.adminOnly
       ? 'activities/adminActivity'

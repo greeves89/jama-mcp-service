@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { defineTool, PAGINATION_DESCRIPTION, type ToolDefinition } from '../types.js';
-import { assertProjectAllowed, filterByAllowedProjects } from '../guards.js';
+import {
+  assertProjectAllowed,
+  filterByAllowedProjects,
+  sichtbareTrefferzahl,
+} from '../guards.js';
 import {
   buildMappingContext,
   collectItemTypeIds,
@@ -333,7 +337,7 @@ const searchItems = defineTool({
     return {
       data: {
         treffer: allowed.map((item) => toItemSummary(item, mapping)),
-        gesamt: total,
+        gesamt: sichtbareTrefferzahl(total, allowed.length, context),
         naechsterStartAt: nextStartAt,
       },
       projectId,
@@ -564,10 +568,14 @@ const runFilter = defineTool({
     if (args.projectId !== undefined) assertProjectAllowed(args.projectId, context);
 
     if (args.filterId === undefined) {
-      const { items } = await context.client.http.paginate<JamaFilter>('filters', {
+      const { items: alleFilter } = await context.client.http.paginate<JamaFilter>('filters', {
         query: { project: args.projectId },
         limit: 100,
       });
+      // Ohne projectId antwortet Jama instanzweit. Die Namen gespeicherter
+      // Filter nennen oft Fachthemen und Kundennamen im Klartext — zusammen
+      // mit der Projekt-ID verraet das Bestand und Zuschnitt fremder Projekte.
+      const { items } = filterByAllowedProjects(alleFilter, context);
       return {
         data: items.map((filter) => ({
           id: filter.id,
@@ -580,6 +588,18 @@ const runFilter = defineTool({
         notes: ['Zum Ausfuehren den gewuenschten Filter erneut mit filterId aufrufen.'],
       };
     }
+
+    // Der Filter wird ueber seine eigene Kennung angesprochen; das Projekt
+    // steht nicht im Aufruf. Ohne diese Pruefung liesse sich die Trefferzahl
+    // eines fremden Filters abfragen — bei countOnly kommt nur eine Zahl
+    // zurueck, die sich nachtraeglich nicht saeubern laesst.
+    const filterDefinition = await context.client.http.getOptional<{ project?: number }>(
+      `filters/${args.filterId}`,
+    );
+    if (!filterDefinition) {
+      throw new ServiceError('JAMA_NOT_FOUND', `Filter ${args.filterId} existiert nicht.`, 404);
+    }
+    assertProjectAllowed(filterDefinition.project, context);
 
     if (args.countOnly) {
       const response = await context.client.http.request<number | { count?: number }>(
@@ -606,7 +626,7 @@ const runFilter = defineTool({
     return {
       data: {
         treffer: allowed.map((item) => toItemSummary(item, mapping)),
-        gesamt: total,
+        gesamt: sichtbareTrefferzahl(total, allowed.length, context),
         naechsterStartAt: nextStartAt,
       },
       notes: notes.length > 0 ? notes : undefined,
@@ -772,7 +792,11 @@ const listUsers = defineTool({
  */
 export async function resolveProjectId(
   reference: string,
-  context: { client: { schema: import('../../jama/schema.js').SchemaResolver } },
+  context: {
+    client: { schema: import('../../jama/schema.js').SchemaResolver };
+    /** Leer oder fehlend heisst: keine zusaetzliche Einschraenkung. */
+    allowedProjectIds?: number[];
+  },
 ): Promise<number> {
   const trimmed = reference.trim();
 
@@ -780,7 +804,18 @@ export async function resolveProjectId(
   const numeric = Number.parseInt(trimmed, 10);
   if (Number.isFinite(numeric) && String(numeric) === trimmed) return numeric;
 
-  const projects = await context.client.schema.getProjects();
+  const alleProjekte = await context.client.schema.getProjects();
+
+  // Die Suche laeuft nur ueber die freigegebenen Projekte. Sonst koennte eine
+  // Kennung auf ein fremdes Projekt treffen, und schon die Fehlermeldung bei
+  // Mehrdeutigkeit wuerde dessen Namen und ID nennen — ein Zugang erfuehre so
+  // die Namen der Projekte anderer Kunden, ohne je Zugriff zu haben.
+  const freigegeben = context.allowedProjectIds ?? [];
+  const projects =
+    freigegeben.length === 0
+      ? alleProjekte
+      : alleProjekte.filter((project) => freigegeben.includes(project.id));
+
   const needle = trimmed.toLowerCase();
 
   const exakt = projects.find(

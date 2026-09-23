@@ -4,6 +4,38 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.13.0] — 2026-09-23
+
+Ergebnis einer unabhaengigen Pruefung der Mandantentrennung. Alle 53 Werkzeuge,
+die Resources, die Prompts, der Stammdaten-Cache und die Suche wurden daraufhin
+durchgesehen, ob ein auf bestimmte Projekte beschraenkter Zugang an fremde
+Daten kommt.
+
+### Sicherheit
+- **Verknuepfte Items aus fremden Projekten wurden vollstaendig ausgegeben.**
+  Jama laesst Beziehungen ueber Projektgrenzen zu; `jama_get_relationships`,
+  `jama_trace_chain` und `jama_trace_matrix` prueften nur das Startitem. Name,
+  Document Key, Status und Adresse des verknuepften Items gingen ungeprueft
+  hinaus — der einzige gefundene Weg, auf dem echte Inhalte die Grenze
+  passierten, nicht nur Zahlen oder Kennungen. In der Nachweiskette bleiben
+  gesperrte Knoten sichtbar, aber ohne Bezeichner: Wuerden sie weggelassen,
+  taeuschte die Kette eine Luecke vor, die es nicht gibt.
+- **Trefferzahlen verrieten den Bestand fremder Projekte.** Nach der Filterung
+  wurde weiter die rohe Zahl von Jama gemeldet. Eine Suche nach einem Stichwort
+  oder Kundennamen liess sich so als Orakel nutzen, ohne dass ein einziges Item
+  sichtbar wurde. Betraf Suche, Filterlauf und Tag-Abfrage.
+- **`jama_run_filter` prueft den Filter selbst.** Zuvor genuegte eine geratene
+  Filter-Kennung, um die Trefferzahl eines fremden Filters zu erfahren; bei
+  `countOnly` kommt nur eine Zahl zurueck, die sich nachtraeglich nicht saeubern
+  laesst. Ohne `projectId` lieferte der Aufruf ausserdem die Filterliste der
+  gesamten Instanz — deren Namen nennen oft Fachthemen im Klartext.
+- **Mehrdeutige Projektkuerzel nannten fremde Projekte beim Namen.** Die
+  Aufloesung arbeitete auf der ungefilterten Projektliste; schon die
+  Fehlermeldung verriet Namen und Kennungen. Die Suche laeuft jetzt nur ueber
+  freigegebene Projekte.
+- `jama_duplicate_item` prueft das Ziel, `jama_run_report` die uebergebenen
+  Item-Kennungen.
+
 ## [1.12.0] — 2026-09-23
 
 Fortsetzung von 1.11.0. Anlass ist ein Betrieb, in dem mehrere Kunden ihre
