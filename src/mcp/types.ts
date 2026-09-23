@@ -2,6 +2,7 @@ import type { z, ZodRawShape } from 'zod';
 import type { JamaClient } from '../jama/client.js';
 import type { Toolset } from '../shared/toolsets.js';
 import type { Aufrufer } from './aufrufer.js';
+import type { Rechtelage } from './rechte.js';
 
 /**
  * Kontext, den jeder Tool-Aufruf erhaelt. Er traegt alles, was die Guards
@@ -17,6 +18,19 @@ export interface ToolContext {
   allowedProjectIds: number[];
   /** Kombination aus Key-Einstellung und globaler Notbremse. */
   readOnly: boolean;
+  /**
+   * Vollstaendige Rechtelage des Aufrufs: Sperrliste, Zugangsfreigabe und
+   * Personenmatrix in ihrer Rangfolge. Sie ist ab hier die Grundlage aller
+   * Guards; `allowedProjectIds` und `readOnly` bleiben daneben stehen, damit
+   * nichts bricht, und werden spaeter aufgeraeumt.
+   *
+   * Optional, weil nicht jeder Kontext ueber die MCP-Route entsteht: Der
+   * Probelauf im Admin baut seinen Kontext ueber buildToolContext, und diese
+   * Datei darf dafuer nicht zum Zwangsumbau fremder Bausteine werden. Fehlt
+   * das Feld, leiten die Guards die Lage aus den beiden Feldern darueber ab —
+   * das ergibt exakt das bisherige Verhalten, nie ein weiteres Recht.
+   */
+  rechte?: Rechtelage;
   toolsets: Toolset[];
   /**
    * Instanzweit abgeschaltete Tools. Wirkt zusaetzlich zu den Toolsets und

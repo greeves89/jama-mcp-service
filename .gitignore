@@ -11,3 +11,6 @@ coverage/
 .idea/
 drizzle/meta/_journal.json.bak
 tmp/
+
+# Bauartefakt der Typpruefung — gehoert nicht ins Repo.
+web/tsconfig.tsbuildinfo

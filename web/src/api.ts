@@ -5,6 +5,16 @@
  * jedem veraendernden Aufruf als Header mitgeschickt (Double-Submit-Verfahren).
  */
 
+import type {
+  Abgleichsantwort,
+  Abgleichsergebnis,
+  Abgleichsstand,
+  PersonMitZuordnung,
+  Personenzeile,
+  Projektzeile,
+  Stufe,
+} from './rechte';
+
 const CSRF_COOKIE = 'jama_admin_csrf';
 
 function csrfToken(): string {
@@ -119,7 +129,124 @@ export const api = {
     }),
   clearCache: () =>
     request<{ geleert: boolean; entfernteEintraege: number }>('/cache/clear', { method: 'POST' }),
+
+  // --- Personenbezogene Rechte ---------------------------------------------
+
+  abgleichsstand: () => request<Abgleichsstand>('/abgleich'),
+  // Die Verbindung bestimmt, aus welcher Jama-Instanz gespiegelt wird. Sie geht
+  // mit, sobald mehr als eine angelegt ist; sonst entscheidet der Dienst.
+  abgleichAnstossen: async (connectionId?: string): Promise<Abgleichsantwort> => {
+    const antwort = await request<unknown>('/abgleich', {
+      method: 'POST',
+      body: JSON.stringify(connectionId ? { connectionId } : {}),
+    });
+    return alsAbgleichsantwort(antwort);
+  },
+
+  personen: async (params: { q?: string; nurMitZuordnung?: boolean } = {}) => {
+    const suche = new URLSearchParams();
+    if (params.q) suche.set('q', params.q);
+    if (params.nurMitZuordnung) suche.set('nurMitZuordnung', 'true');
+    const anhang = suche.toString();
+    const antwort = await request<unknown>(`/personen${anhang ? `?${anhang}` : ''}`);
+    return { personen: alsListe<unknown>(antwort, 'personen').map(alsPersonenzeile) };
+  },
+  person: async (jamaUserId: number): Promise<PersonMitZuordnung> => {
+    const antwort = await request<Record<string, unknown>>(`/personen/${jamaUserId}`);
+    return alsPersonMitZuordnung(antwort);
+  },
+  setzeGrundstufe: (jamaUserId: number, stufe: Stufe) =>
+    request<unknown>(`/personen/${jamaUserId}/grundstufe`, {
+      method: 'PUT',
+      body: JSON.stringify({ stufe }),
+    }),
+  // Setzt die Grundstufe fuer alle aktiven Personen. Ohne diesen Weg muesste
+  // jede Zeile einzeln angeklickt werden, bevor die Matrix ueberhaupt
+  // benutzbar wird.
+  setzeGrundstufeFuerAlle: (stufe: Stufe) =>
+    request<{ betroffene: number; stufe: Stufe }>('/personen/grundstufe-alle', {
+      method: 'PUT',
+      body: JSON.stringify({ stufe }),
+    }),
+  setzeZuordnung: (jamaUserId: number, eintraege: Array<{ projectId: number; stufe: Stufe }>) =>
+    request<unknown>(`/personen/${jamaUserId}/zuordnung`, {
+      method: 'PUT',
+      body: JSON.stringify({ eintraege }),
+    }),
+
+  // Archivierte Projekte gehoeren in die Liste: eine alte Zuordnung auf ein
+  // inzwischen archiviertes Projekt waere sonst unsichtbar und damit nicht mehr
+  // zu entfernen. Die Oberflaeche setzt sie erkennbar ab.
+  projekte: async () => {
+    const antwort = await request<unknown>('/projekte?mitArchivierten=true');
+    return { projekte: alsListe<Projektzeile>(antwort, 'projekte') };
+  },
 };
+
+// --- Anpassung der Antwortformen --------------------------------------------
+//
+// Der Dienst liefert die Listen mal blank, mal in einem Umschlag, und benennt
+// einzelne Felder deutsch statt wie in der Jama-Quelle. Die Umsetzung passiert
+// hier an einer Stelle, damit die Seiten nur eine Form kennen muessen.
+
+function alsListe<T>(antwort: unknown, feld: string): T[] {
+  if (Array.isArray(antwort)) return antwort as T[];
+  if (antwort && typeof antwort === 'object') {
+    const inhalt = (antwort as Record<string, unknown>)[feld];
+    if (Array.isArray(inhalt)) return inhalt as T[];
+  }
+  return [];
+}
+
+function text(wert: unknown): string | null {
+  return typeof wert === 'string' && wert.trim() !== '' ? wert : null;
+}
+
+function alsPersonenzeile(roh: unknown): Personenzeile {
+  const zeile = (roh ?? {}) as Record<string, unknown>;
+  return {
+    jamaUserId: Number(zeile.jamaUserId ?? 0),
+    username: text(zeile.username) ?? text(zeile.benutzername),
+    email: text(zeile.email),
+    firstName: text(zeile.firstName),
+    lastName: text(zeile.lastName),
+    name: text(zeile.name),
+    licenseType: text(zeile.licenseType) ?? text(zeile.lizenztyp),
+    aktiv: zeile.aktiv !== false,
+    grundstufe: (text(zeile.grundstufe) as Stufe | null) ?? 'keine',
+    anzahlZuordnungen: Number(zeile.anzahlZuordnungen ?? 0),
+  };
+}
+
+function alsPersonMitZuordnung(antwort: Record<string, unknown>): PersonMitZuordnung {
+  // Die Zuordnung kommt entweder flach neben der Person oder in einem eigenen
+  // Feld. Beides wird hier auf dieselbe Form gebracht.
+  const zuordnung = (antwort.zuordnung ?? antwort) as Record<string, unknown>;
+  const lesen = Array.isArray(zuordnung.lesen) ? (zuordnung.lesen as number[]) : [];
+  const schreiben = Array.isArray(zuordnung.schreiben) ? (zuordnung.schreiben as number[]) : [];
+  const person = alsPersonenzeile(antwort.person ?? antwort);
+  const grundstufe = (text(zuordnung.grundstufe) as Stufe | null) ?? person.grundstufe;
+  return { person: { ...person, grundstufe }, lesen, schreiben, grundstufe };
+}
+
+function alsAbgleichsantwort(antwort: unknown): Abgleichsantwort {
+  const inhalt = (antwort ?? {}) as Record<string, unknown>;
+  const hinweis = text(inhalt.hinweis);
+
+  // Form mit Umschlag: der Lauf kann laenger dauern als die Antwort offen
+  // bleibt, dann steht statt eines Ergebnisses nur ein Hinweis darin.
+  if ('fertig' in inhalt || 'ergebnis' in inhalt) {
+    const ergebnis = inhalt.ergebnis as Abgleichsergebnis | null | undefined;
+    return { fertig: inhalt.fertig === true && !!ergebnis, ergebnis: ergebnis ?? null, hinweis };
+  }
+
+  // Flache Form: das Ergebnis selbst ist die Antwort.
+  if ('benutzer' in inhalt && 'projekte' in inhalt) {
+    return { fertig: true, ergebnis: inhalt as unknown as Abgleichsergebnis, hinweis };
+  }
+
+  return { fertig: false, ergebnis: null, hinweis };
+}
 
 // --- Typen ------------------------------------------------------------------
 

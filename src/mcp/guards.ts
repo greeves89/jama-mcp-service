@@ -1,5 +1,6 @@
 import { GuardError } from '../shared/errors.js';
 import type { ToolContext, ToolDefinition } from './types.js';
+import { begruendung, darfAendern, darfLesen, istEingeschraenkt, type Rechtelage } from './rechte.js';
 
 /**
  * Schutzschichten vor jedem Tool-Aufruf.
@@ -11,11 +12,37 @@ import type { ToolContext, ToolDefinition } from './types.js';
  *   2. Toolset    — hat dieser Key die Faehigkeit ueberhaupt?
  *   3. Read-only  — darf er schreiben (Key-Einstellung oder globale Notbremse)?
  *   4. Confirm    — hat der Aufrufer die Zerstoerung ausdruecklich bestaetigt?
- *   5. Projekt    — darf er dieses konkrete Projekt anfassen?
+ *   5. Rechtelage — darf er dieses konkrete Projekt anfassen (Sperrliste,
+ *                   Zugangsfreigabe, Personenmatrix)?
  *
- * Die Projektpruefung kommt zuletzt, weil sie als einzige einen Jama-Aufruf
- * kosten kann (Aufloesung eines Items auf sein Projekt).
+ * Die Rechtepruefung kommt zuletzt, weil sie als einzige einen Jama-Aufruf
+ * kosten kann (Aufloesung eines Items auf sein Projekt). Die Personenmatrix
+ * ist die dritte Stufe genau dieser Entscheidung und sitzt deshalb an
+ * derselben Stelle und nicht als eigener Schritt davor: Sie beantwortet
+ * dieselbe Frage — darf dieses Projekt angefasst werden — nur feiner.
  */
+
+/**
+ * Die Rechtelage eines Kontexts.
+ *
+ * Kontexte, die nicht ueber die MCP-Route entstehen (der Probelauf im Admin,
+ * der Einzelplatzbetrieb aelterer Staende), tragen das Feld noch nicht. Fuer
+ * sie wird die Lage aus den bestehenden Feldern abgeleitet: ohne Sperrliste
+ * und mit abgeschalteter Matrix ergibt das exakt das bisherige Verhalten. So
+ * laeuft keine Aufrufstelle versehentlich voellig ungeprueft — der Rueckfall
+ * verschaerft nicht und lockert nicht.
+ */
+export function rechtelage(context: ToolContext): Rechtelage {
+  return (
+    context.rechte ?? {
+      gesperrteProjektIds: [],
+      allowedProjectIds: context.allowedProjectIds,
+      readOnly: context.readOnly,
+      person: { aktiv: false, erkannt: false, grundstufe: 'keine', lesen: [], schreiben: [] },
+      beiUnbekannt: 'nur_lesen',
+    }
+  );
+}
 
 /**
  * Instanzweite Abschaltung. Im HTTP-Betrieb wird ein abgeschaltetes Tool gar
@@ -43,7 +70,20 @@ export function assertToolsetAllowed(tool: ToolDefinition, context: ToolContext)
   }
 }
 
-export function assertWriteAllowed(tool: ToolDefinition, context: ToolContext): void {
+/**
+ * Schreibrecht des Zugangs und der Person.
+ *
+ * `args` ist nachgestellt und optional, damit die bestehenden Aufrufstellen mit
+ * zwei Argumenten unveraendert weiterlaufen. Nur mit den Argumenten laesst sich
+ * die Personenstufe projektgenau pruefen; ohne sie wird projektlos geprueft,
+ * was bei aktiver Matrix immer noch jede Aenderung einer unbekannten Person
+ * abweist.
+ */
+export function assertWriteAllowed(
+  tool: ToolDefinition,
+  context: ToolContext,
+  args?: Record<string, unknown>,
+): void {
   if (!tool.mutating) return;
   if (context.readOnly) {
     throw new GuardError(
@@ -52,6 +92,33 @@ export function assertWriteAllowed(tool: ToolDefinition, context: ToolContext): 
       { tool: tool.name },
     );
   }
+
+  const lage = rechtelage(context);
+  const projectId = typeof args?.projectId === 'number' ? args.projectId : undefined;
+  if (darfAendern(projectId, lage)) return;
+
+  // Der Code sagt, woran es lag: Wer das Projekt nicht einmal sehen darf,
+  // bekommt denselben Code wie beim Lesen. Ein eigener Code an dieser Stelle
+  // wuerde verraten, dass es das Projekt gibt und der Zugang es lediglich
+  // nicht aendern darf. Bleibt das Lesen erlaubt, ist READ_ONLY die
+  // zutreffende Auskunft: sichtbar, aber nicht aenderbar.
+  const darfEsSehen = darfLesen(projectId, lage);
+
+  // Ohne Projektbezug kommt die Ablehnung immer aus der Matrix — entweder ist
+  // die Person unbekannt, oder sie hat nirgends Schreibrecht.
+  const ohneProjekt = lage.person.erkannt
+    ? 'Der aufrufenden Person ist kein Projekt zum Ändern zugeordnet.'
+    : 'Die aufrufende Person konnte nicht zugeordnet werden; ohne Zuordnung sind Änderungen gesperrt.';
+
+  const text =
+    projectId === undefined
+      ? `"${tool.name}" veraendert Daten in Jama. ${ohneProjekt}`
+      : `"${tool.name}" veraendert Daten in Jama. ${begruendung(projectId, lage)}`;
+
+  throw new GuardError(darfEsSehen ? 'READ_ONLY' : 'PROJECT_FORBIDDEN', text, {
+    tool: tool.name,
+    ...(projectId === undefined ? {} : { projectId }),
+  });
 }
 
 export function assertConfirmed(
@@ -76,20 +143,43 @@ export function assertConfirmed(
 }
 
 /**
- * Prueft eine Projekt-Allowlist. Eine leere Liste bedeutet: keine zusaetzliche
- * Einschraenkung — es gelten weiterhin die Berechtigungen des hinterlegten
- * Jama-Benutzers, die wir nie ausweiten.
+ * Prueft, ob dieses Projekt gelesen werden darf — ueber alle drei Stufen.
+ *
+ * Eine leere Zugangsfreigabe bedeutet weiterhin: keine zusaetzliche
+ * Einschraenkung auf dieser Stufe. Es gelten die Berechtigungen des
+ * hinterlegten Jama-Benutzers, die wir nie ausweiten.
  */
 export function assertProjectAllowed(projectId: number | undefined, context: ToolContext): void {
-  if (context.allowedProjectIds.length === 0) return;
-  if (projectId === undefined) return;
-  if (!context.allowedProjectIds.includes(projectId)) {
+  const lage = rechtelage(context);
+  if (darfLesen(projectId, lage)) return;
+
+  // Ohne Projektbezug kann die Pruefung nur an der Person scheitern; dann gibt
+  // es auch keine Projektnummer, die man nennen koennte.
+  if (projectId === undefined) {
     throw new GuardError(
       'PROJECT_FORBIDDEN',
-      `Projekt ${projectId} ist fuer diesen Zugang nicht freigegeben. Freigegeben sind: ${context.allowedProjectIds.join(', ')}.`,
-      { projectId, allowed: context.allowedProjectIds },
+      'Die aufrufende Person konnte nicht zugeordnet werden. Für diesen Zugang ist ohne Zuordnung kein Zugriff möglich.',
+      {},
     );
   }
+
+  // Die Liste der freigegebenen Projekte steht nur dann in der Meldung, wenn
+  // die Zugangsfreigabe der Grund war: Wer an der Sperrliste oder an der
+  // Personenmatrix scheitert, soll daraus nichts ueber den Zuschnitt des
+  // Zugangs schliessen koennen.
+  const freigabeWarDerGrund =
+    lage.allowedProjectIds.length > 0 &&
+    !lage.allowedProjectIds.includes(projectId) &&
+    !lage.gesperrteProjektIds.includes(projectId);
+
+  const text = freigabeWarDerGrund
+    ? `${begruendung(projectId, lage)} Freigegeben sind: ${lage.allowedProjectIds.join(', ')}.`
+    : begruendung(projectId, lage);
+
+  throw new GuardError('PROJECT_FORBIDDEN', text, {
+    projectId,
+    ...(freigabeWarDerGrund ? { allowed: lage.allowedProjectIds } : {}),
+  });
 }
 
 /**
@@ -101,10 +191,9 @@ export function filterByAllowedProjects<T extends { project?: number }>(
   items: T[],
   context: ToolContext,
 ): { items: T[]; removed: number } {
-  if (context.allowedProjectIds.length === 0) return { items, removed: 0 };
-  const allowed = items.filter(
-    (item) => item.project === undefined || context.allowedProjectIds.includes(item.project),
-  );
+  const lage = rechtelage(context);
+  if (!istEingeschraenkt(lage)) return { items, removed: 0 };
+  const allowed = items.filter((item) => darfLesen(item.project, lage));
   return { items: allowed, removed: items.length - allowed.length };
 }
 
@@ -116,9 +205,7 @@ export function filterByAllowedProjects<T extends { project?: number }>(
  * fehlender Knoten eine Luecke vortaeuschen wuerde, die es gar nicht gibt.
  */
 export function istProjektErlaubt(projectId: number | undefined, context: ToolContext): boolean {
-  if (context.allowedProjectIds.length === 0) return true;
-  if (projectId === undefined) return true;
-  return context.allowedProjectIds.includes(projectId);
+  return darfLesen(projectId, rechtelage(context));
 }
 
 /**
@@ -130,13 +217,17 @@ export function istProjektErlaubt(projectId: number | undefined, context: ToolCo
  * Stichwort wuerde dessen Vorkommen in fremden Projekten verraten, ohne dass
  * ein einziges Item sichtbar wird. Fuer einen beschraenkten Zugang zaehlt
  * deshalb nur, was er auch sehen darf.
+ *
+ * Massgeblich ist dafuer jede Einschraenkung, nicht nur die Zugangsfreigabe:
+ * Auch eine Sperrliste oder eine Personenzuordnung filtert Treffer heraus, und
+ * die ungefilterte Zahl wuerde genau das verraten, was sie verbergen soll.
  */
 export function sichtbareTrefferzahl(
   gesamtLautJama: number,
   sichtbar: number,
   context: ToolContext,
 ): number {
-  return context.allowedProjectIds.length === 0 ? gesamtLautJama : sichtbar;
+  return istEingeschraenkt(rechtelage(context)) ? sichtbar : gesamtLautJama;
 }
 
 const SECRET_KEYS = /pass|secret|token|key|pin|credential/i;
@@ -171,12 +262,17 @@ export function runGuards(
 ): void {
   assertToolEnabled(tool, context);
   assertToolsetAllowed(tool, context);
-  assertWriteAllowed(tool, context);
+  assertWriteAllowed(tool, context, args);
   assertConfirmed(tool, args, context);
 
-  // Projekt-Guard, soweit das Projekt direkt in den Argumenten steht. Tools, die
+  // Rechte-Guard, soweit das Projekt direkt in den Argumenten steht. Tools, die
   // erst ueber eine Item-ID auf das Projekt schliessen, rufen
   // assertProjectAllowed spaeter selbst auf.
+  //
+  // Bewusst auch ohne Projekt aufgerufen: Bei aktiver Matrix mit unbekannter
+  // Person und der Vorgabe "ablehnen" ist der Zugriff als Ganzes zu, nicht nur
+  // der auf ein bestimmtes Projekt. Solange die Matrix aus ist oder "nur_lesen"
+  // gilt, ist dieser Aufruf wirkungslos — das Verhalten bleibt unveraendert.
   const projectId = args.projectId;
-  if (typeof projectId === 'number') assertProjectAllowed(projectId, context);
+  assertProjectAllowed(typeof projectId === 'number' ? projectId : undefined, context);
 }

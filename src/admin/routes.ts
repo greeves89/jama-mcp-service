@@ -17,6 +17,15 @@ import {
 } from './auth.js';
 import { encryptCredentials } from '../service/keys.js';
 import { baueVerbindungsUpdate } from '../service/connections.js';
+import { gleicheAb, letzterAbgleich, type Abgleichsergebnis } from '../service/abgleich.js';
+import {
+  ladePersonen,
+  ladeProjekte,
+  ladeZuordnung,
+  setzeGrundstufe,
+  setzeGrundstufeFuerAlle,
+  setzeZuordnungMehrfach,
+} from '../service/personen.js';
 import {
   getSettings,
   invalidateSettingsCache,
@@ -62,6 +71,37 @@ import { renderResult } from '../mcp/server.js';
 const SESSION_COOKIE = 'jama_admin_session';
 const CSRF_COOKIE = 'jama_admin_csrf';
 const CSRF_HEADER = 'x-csrf-token';
+
+/**
+ * Zeitgrenze fuer einen Abgleich.
+ *
+ * Ein Durchlauf ueber mehrere hundert Benutzer und Projekte sind etliche
+ * Jama-Aufrufe, und Jama drosselt bei zehn Anfragen pro Sekunde fuer die
+ * gesamte Instanz. Ueblicherweise ist er in unter einer Minute durch; zehn
+ * Minuten decken auch eine traege Instanz ab und verhindern trotzdem, dass
+ * eine Anfrage unbegrenzt offen haengt. Laeuft der Abgleich danach noch, wird
+ * er nicht abgebrochen — er laeuft im Hintergrund weiter, nur die Antwort geht
+ * ohne Ergebnis heraus.
+ */
+const ABGLEICH_ZEITGRENZE_MS = 10 * 60 * 1000;
+
+/**
+ * Obergrenze fuer eine Zuordnung in einem Zug.
+ *
+ * Die Zahl liegt weit ueber jeder realen Projektlandschaft. Ohne sie koennte
+ * ein einziger Aufruf beliebig viel Speicher binden, weil der Rumpf vor der
+ * Pruefung vollstaendig gelesen wird.
+ */
+const MAX_ZUORDNUNGSEINTRAEGE = 5000;
+
+/**
+ * Laeuft gerade ein Abgleich?
+ *
+ * Zwei gleichzeitige Laeufe schrieben denselben Spiegel und verdoppelten die
+ * Last auf Jama. Der Zustand liegt im Prozess, wie auch der Zwischenspeicher
+ * und die Ratenbegrenzung — der Dienst ist auf genau einen Prozess ausgelegt.
+ */
+let laufenderAbgleich: { seit: number; verbindung: { id: string; name: string } } | null = null;
 
 function clientIp(request: FastifyRequest): string {
   return request.ip ?? 'unbekannt';
@@ -111,6 +151,91 @@ function sendError(reply: FastifyReply, error: unknown): FastifyReply {
     .status(serviceError.httpStatus)
     .send({ fehler: serviceError.message, code: serviceError.code, details: serviceError.details });
 }
+
+/**
+ * Urheber einer Aenderung.
+ *
+ * Wird an die veraendernden Dienste durchgereicht und landet von dort als
+ * Akteur im Audit-Log. Das Dashboard kennt keinen Benutzernamen — es wird mit
+ * einem einzigen PIN geoeffnet —, also ist die Adresse das einzige
+ * unterscheidende Merkmal. Sie macht wenigstens nachvollziehbar, von wo aus
+ * eine Zuordnung gesetzt wurde.
+ */
+function urheber(request: FastifyRequest): string {
+  return `admin@${clientIp(request)}`;
+}
+
+/**
+ * Verdeckt unerwartete Fehler aus Datenbank und Jama.
+ *
+ * Deren Meldungen nennen Tabellen, Spalten, Adressen und Antwortauszuege —
+ * nichts davon gehoert in den Browser. Eigene Fehler unterhalb 500 sind
+ * dagegen bewusst fuer den Aufrufer formuliert und bleiben unveraendert; nur
+ * alles Uebrige wird zu einer allgemeinen Antwort, waehrend der Grund ins
+ * Serverprotokoll geht.
+ */
+function verdeckeInterna(fehler: unknown, ersatz: string): ServiceError {
+  if (fehler instanceof ServiceError && fehler.httpStatus < 500) return fehler;
+  logger.error({ err: fehler }, ersatz);
+  return new ServiceError('INTERNAL', ersatz, 500);
+}
+
+/** Fuehrt einen Dienstaufruf aus und verdeckt unerwartete Fehler. */
+async function dienst<T>(aufruf: Promise<T>, ersatz: string): Promise<T> {
+  try {
+    return await aufruf;
+  } catch (fehler) {
+    throw verdeckeInterna(fehler, ersatz);
+  }
+}
+
+/**
+ * Wahrheitswert aus einem Abfrageparameter.
+ *
+ * `z.coerce.boolean()` macht aus der Zeichenkette "false" ein `true` — in der
+ * Abfragezeile steht aber immer eine Zeichenkette. Deshalb die erlaubten Werte
+ * ausdruecklich.
+ */
+const abfrageWahrheit = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+  .transform((wert) => wert === true || wert === 'true' || wert === '1');
+
+/**
+ * Ein Abgleichsergebnis ohne Zahlen.
+ *
+ * Der Vertrag sagt zu, dass die Route ein `Abgleichsergebnis` liefert, und die
+ * Oberflaeche liest `benutzer` und `projekte` ohne Pruefung. Auch die beiden
+ * Faelle ohne beendeten Lauf — ein Abgleich laeuft bereits, oder er laeuft
+ * ueber die Zeitgrenze hinaus weiter — muessen deshalb diese Form haben. Der
+ * Grund steht in `warnungen`, wo die Oberflaeche ihn ohnehin anzeigt.
+ */
+function ergebnisOhneLauf(dauerMs: number, hinweis: string): Abgleichsergebnis {
+  return {
+    benutzer: { neu: 0, geaendert: 0, verschwunden: 0 },
+    projekte: { neu: 0, geaendert: 0, verschwunden: 0 },
+    dauerMs,
+    warnungen: [hinweis],
+  };
+}
+
+/**
+ * Suchbegriff aus der Abfragezeile.
+ *
+ * Ein leeres Feld in der Oberflaeche schickt `?q=` mit. Ohne diese Umwandlung
+ * waere das ein Pflichtverstoss und die Liste bliebe leer, statt einfach alles
+ * zu zeigen. Die Laengengrenze haelt die Suchmuster klein.
+ */
+const suchbegriff = z
+  .string()
+  .max(200)
+  .trim()
+  .optional()
+  .transform((wert) => (wert === undefined || wert === '' ? undefined : wert));
+
+const stufeSchema = z.enum(['keine', 'lesen', 'schreiben']);
+
+// Jama vergibt keine Null und keine negativen Benutzernummern.
+const jamaUserIdParam = z.object({ jamaUserId: z.coerce.number().int().positive() });
 
 const zeitraumSchema = z.object({
   from: z.string().optional(),
@@ -615,6 +740,27 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
         const update = baueKeyUpdate(body, encryptCredentials);
 
+        // Die beiden Felder der Personenrechte gehen bewusst an keySchema und
+        // baueKeyUpdate vorbei: beim Anlegen eines Zugangs sind sie nicht zu
+        // setzen (die Matrix wird nachtraeglich scharf geschaltet), und ein
+        // Parse mit keySchema wuerde sie stillschweigend verwerfen. Deshalb ein
+        // eigener, schmaler Schnitt auf denselben Rumpf.
+        const rechte = z
+          .object({
+            gesperrteProjektIds: z.array(z.number().int().positive()).max(1000).optional(),
+            personenrechteAktiv: z.boolean().optional(),
+          })
+          .parse(request.body);
+
+        if (rechte.gesperrteProjektIds !== undefined) {
+          // Doppelte Nummern aendern an der Wirkung nichts und blaehen nur die
+          // Spalte auf; die Sperrliste wird bei jedem Aufruf ausgewertet.
+          update.gesperrteProjektIds = [...new Set(rechte.gesperrteProjektIds)];
+        }
+        if (rechte.personenrechteAktiv !== undefined) {
+          update.personenrechteAktiv = rechte.personenrechteAktiv;
+        }
+
         const [updated] = await getDb()
           .update(apiKeys)
           .set(update)
@@ -694,6 +840,334 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       },
       true,
     ),
+  );
+
+  // --- Abgleich, Personen und Rechte ---------------------------------------
+
+  /**
+   * Waehlt die Jama-Verbindung fuer den Abgleich.
+   *
+   * Geraten wird nur dort, wo es nichts zu raten gibt: bei genau einer
+   * eingerichteten Verbindung. Sobald mehrere existieren, waere jede Annahme
+   * falsch — ein Abgleich gegen die Testinstanz wuerde den Spiegel der
+   * Produktivinstanz ueberschreiben und damit jede Zuordnung ins Leere laufen
+   * lassen. Dann muss der Aufrufer waehlen.
+   */
+  const waehleVerbindung = async (gewuenscht?: string) => {
+    const spalten = { id: jamaConnections.id, name: jamaConnections.name };
+
+    if (gewuenscht) {
+      const rows = await getDb()
+        .select(spalten)
+        .from(jamaConnections)
+        .where(eq(jamaConnections.id, gewuenscht))
+        .limit(1);
+      const treffer = rows[0];
+      if (!treffer) {
+        throw new ServiceError('CONNECTION_MISSING', 'Diese Jama-Verbindung existiert nicht.', 404);
+      }
+      return treffer;
+    }
+
+    const alle = await getDb().select(spalten).from(jamaConnections).orderBy(jamaConnections.name);
+
+    if (alle.length === 0) {
+      throw new ServiceError(
+        'CONNECTION_MISSING',
+        'Es ist keine Jama-Verbindung eingerichtet. Ohne sie gibt es nichts abzugleichen.',
+        400,
+      );
+    }
+    if (alle.length > 1) {
+      throw new ServiceError(
+        'VALIDATION',
+        'Es sind mehrere Jama-Verbindungen eingerichtet. Bitte die gewünschte Verbindung angeben.',
+        400,
+        { verbindungen: alle },
+      );
+    }
+    return alle[0]!;
+  };
+
+  /**
+   * Stoesst den Abgleich des Spiegels an.
+   *
+   * Die Antwort hat immer dieselbe Form; `fertig` sagt, ob ein Ergebnis
+   * vorliegt. So muss die Oberflaeche drei Ausgaenge — abgeschlossen, laeuft
+   * bereits, laeuft laenger als die Zeitgrenze — nicht an drei verschiedenen
+   * Antwortformen erkennen.
+   */
+  app.post('/admin/api/abgleich', async (request, reply) =>
+    geschuetzt(
+      request,
+      reply,
+      async () => {
+        const body = z
+          .object({ connectionId: z.string().uuid().optional() })
+          .parse(request.body ?? {});
+
+        if (laufenderAbgleich) {
+          // Ein zweiter Anstoss ist kein Fehler des Aufrufers, sondern eine
+          // Frage des Zeitpunkts. Deshalb eine regulaere Antwort mit Hinweis
+          // statt eines Fehlerstatus, den die Oberflaeche rot anzeigen wuerde.
+          const hinweis =
+            'Es läuft bereits ein Abgleich. Bitte dessen Ergebnis abwarten und danach erneut anstoßen.';
+          return {
+            ...ergebnisOhneLauf(Date.now() - laufenderAbgleich.seit, hinweis),
+            gestartet: false,
+            fertig: false,
+            verbindung: laufenderAbgleich.verbindung,
+            hinweis,
+          };
+        }
+
+        const verbindung = await waehleVerbindung(body.connectionId);
+        const von = urheber(request);
+        const begonnen = Date.now();
+
+        laufenderAbgleich = { seit: begonnen, verbindung };
+
+        // Die Sperre haengt am tatsaechlichen Lauf, nicht an dieser Antwort:
+        // laeuft er nach der Zeitgrenze im Hintergrund weiter, darf trotzdem
+        // kein zweiter starten. Der leere Auffangzweig verhindert nur, dass
+        // eine abgelehnte Zusage als unbehandelt gilt — gemeldet wird der
+        // Fehler ueber das Rennen weiter unten.
+        const lauf = gleicheAb(verbindung.id, von).finally(() => {
+          laufenderAbgleich = null;
+        });
+        lauf.catch(() => undefined);
+
+        let zeitgeber: ReturnType<typeof setTimeout> | undefined;
+        const zeitgrenze = new Promise<'zeitgrenze'>((aufloesen) => {
+          zeitgeber = setTimeout(() => aufloesen('zeitgrenze'), ABGLEICH_ZEITGRENZE_MS);
+        });
+
+        try {
+          const ausgang = await Promise.race([lauf, zeitgrenze]);
+          const dauerMs = Date.now() - begonnen;
+
+          if (ausgang === 'zeitgrenze') {
+            const hinweis =
+              'Der Abgleich dauert länger als erwartet und läuft im Hintergrund weiter. Der Stand lässt sich über die Abgleichsübersicht abrufen.';
+            return {
+              ...ergebnisOhneLauf(dauerMs, hinweis),
+              gestartet: true,
+              fertig: false,
+              verbindung,
+              hinweis,
+            };
+          }
+
+          // Das Ergebnis des Dienstes unveraendert, erweitert um das, was nur
+          // die Route weiss: dass dieser Aufruf den Lauf angestossen hat und
+          // welche Instanz gespiegelt wurde.
+          return { ...ausgang, gestartet: true, fertig: true, verbindung, hinweis: null };
+        } catch (fehler) {
+          throw verdeckeInterna(fehler, 'Der Abgleich ist fehlgeschlagen.');
+        } finally {
+          // Ohne dies haelt der Zeitgeber den Prozess nach einem schnellen
+          // Abgleich noch bis zu zehn Minuten wach.
+          if (zeitgeber) clearTimeout(zeitgeber);
+        }
+      },
+      true,
+    ),
+  );
+
+  app.get('/admin/api/abgleich', async (request, reply) =>
+    geschuetzt(request, reply, async () => {
+      const stand = await dienst(
+        letzterAbgleich(),
+        'Der Stand des letzten Abgleichs ließ sich nicht ermitteln.',
+      );
+
+      return {
+        ...stand,
+        laeuft: laufenderAbgleich !== null,
+        laeuftSeitMs: laufenderAbgleich ? Date.now() - laufenderAbgleich.seit : null,
+      };
+    }),
+  );
+
+  app.get('/admin/api/personen', async (request, reply) =>
+    geschuetzt(request, reply, async () => {
+      const query = z
+        .object({
+          q: suchbegriff,
+          nurMitZuordnung: abfrageWahrheit.default(false),
+        })
+        .parse(request.query ?? {});
+
+      // Die Liste steht in einem benannten Feld, nicht als nackte Sammlung:
+      // so laesst sich die Antwort spaeter um Angaben wie eine Gesamtzahl
+      // erweitern, ohne dass jeder Aufrufer bricht.
+      const personen = await dienst(
+        ladePersonen({ q: query.q, nurMitZuordnung: query.nurMitZuordnung }),
+        'Die Personenliste ließ sich nicht laden.',
+      );
+      return { personen };
+    }),
+  );
+
+  app.get('/admin/api/personen/:jamaUserId', async (request, reply) =>
+    geschuetzt(request, reply, async () => {
+      const { jamaUserId } = jamaUserIdParam.parse(request.params);
+
+      // Der Spiegel umfasst einige hundert Zeilen; ihn ganz zu laden und die
+      // eine Person herauszusuchen ist guenstiger als eine zweite Abfrageform
+      // im Dienst, die sonst niemand braucht.
+      const [personen, zuordnung] = await Promise.all([
+        dienst(ladePersonen(), 'Die Personenliste ließ sich nicht laden.'),
+        dienst(ladeZuordnung(jamaUserId), 'Die Zuordnung ließ sich nicht laden.'),
+      ]);
+
+      const person = personen.find((zeile) => zeile.jamaUserId === jamaUserId);
+      if (!person) {
+        throw new ServiceError(
+          'VALIDATION',
+          'Diese Person ist im Spiegel nicht vorhanden. Bitte zuerst einen Abgleich ausführen.',
+          404,
+        );
+      }
+
+      // Flach statt verschachtelt: die Zuordnung gehoert zur Person, und eine
+      // zweite Ebene brachte keine zusaetzliche Aussage.
+      return { person, ...zuordnung };
+    }),
+  );
+
+  /**
+   * Setzt die Grundstufe einer Person.
+   *
+   * Die Grundstufe ist die Abkuerzung fuer den Regelfall: ohne sie muesste
+   * jede Person einzeln auf jedes Projekt geklickt werden. Sie erweitert die
+   * Rechte nie ueber die Zugangsfreigabe hinaus — das entscheidet die
+   * Berechnung, nicht diese Route.
+   */
+  /**
+   * Setzt die Grundstufe fuer alle aktiven Personen auf einmal.
+   *
+   * Der Weg ohne diesen Knopf: zweihundert Zeilen einzeln anklicken. Der
+   * Weg mit ihm: einmal "alle duerfen lesen" setzen und danach die wenigen
+   * Ausnahmen pflegen. Genau so ist die Festlegung im Betrieb gemeint, und
+   * ohne diese Abkuerzung wird die Matrix schlicht nie eingeschaltet.
+   */
+  app.put('/admin/api/personen/grundstufe-alle', async (request, reply) =>
+    geschuetzt(
+      request,
+      reply,
+      async () => {
+        const body = z.object({ stufe: stufeSchema }).parse(request.body);
+
+        const betroffene = await dienst(
+          setzeGrundstufeFuerAlle(body.stufe, urheber(request)),
+          'Die Grundstufe ließ sich nicht für alle setzen.',
+        );
+
+        return { betroffene, stufe: body.stufe };
+      },
+      true,
+    ),
+  );
+
+  app.put('/admin/api/personen/:jamaUserId/grundstufe', async (request, reply) =>
+    geschuetzt(
+      request,
+      reply,
+      async () => {
+        const { jamaUserId } = jamaUserIdParam.parse(request.params);
+        const body = z.object({ stufe: stufeSchema }).parse(request.body);
+
+        // Den Audit-Eintrag schreibt der Dienst selbst, mit genau diesem
+        // Urheber. Eine zweite Zeile aus der Route naehme dieselbe Tatsache ein
+        // weiteres Mal auf und machte das Protokoll nur unleserlicher.
+        await dienst(
+          setzeGrundstufe(jamaUserId, body.stufe, urheber(request)),
+          'Die Grundstufe ließ sich nicht speichern.',
+        );
+
+        return dienst(ladeZuordnung(jamaUserId), 'Die Zuordnung ließ sich nicht laden.');
+      },
+      true,
+    ),
+  );
+
+  /**
+   * Setzt die Projektzuordnung einer Person in einem Zug.
+   *
+   * Bewusst als ganze Liste und nicht als einzelne Schalter: die Oberflaeche
+   * setzt ueber den Projektbaum oft Dutzende Zeilen gleichzeitig. Einzelne
+   * Aufrufe hinterliessen bei einem Abbruch auf halber Strecke einen Zustand,
+   * den niemand beabsichtigt hat.
+   */
+  app.put('/admin/api/personen/:jamaUserId/zuordnung', async (request, reply) =>
+    geschuetzt(
+      request,
+      reply,
+      async () => {
+        const { jamaUserId } = jamaUserIdParam.parse(request.params);
+        const body = z
+          .object({
+            eintraege: z
+              .array(z.object({ projectId: z.number().int().positive(), stufe: stufeSchema }))
+              .max(
+                MAX_ZUORDNUNGSEINTRAEGE,
+                `Es sind höchstens ${MAX_ZUORDNUNGSEINTRAEGE} Einträge je Aufruf möglich.`,
+              ),
+          })
+          .parse(request.body);
+
+        // Zwei Eintraege zum selben Projekt widersprechen sich, sobald sie
+        // verschiedene Stufen nennen. Welcher gewaenne, waere ein Zufall der
+        // Reihenfolge — deshalb abgelehnt statt stillschweigend entschieden.
+        const projekte = new Set(body.eintraege.map((eintrag) => eintrag.projectId));
+        if (projekte.size !== body.eintraege.length) {
+          throw new ServiceError(
+            'VALIDATION',
+            'Jedes Projekt darf in der Zuordnung nur einmal vorkommen.',
+            400,
+          );
+        }
+
+        // Wie bei der Grundstufe: den Audit-Eintrag schreibt der Dienst, hier
+        // wird nur der Urheber hereingereicht.
+        await dienst(
+          setzeZuordnungMehrfach(jamaUserId, body.eintraege, urheber(request)),
+          'Die Zuordnung ließ sich nicht speichern.',
+        );
+
+        return dienst(ladeZuordnung(jamaUserId), 'Die Zuordnung ließ sich nicht laden.');
+      },
+      true,
+    ),
+  );
+
+  /**
+   * Die Projektliste des Spiegels, flach und mit `elternId` je Zeile.
+   *
+   * Der Baum entsteht in der Oberflaeche: sie zeichnet ihn ohnehin und braucht
+   * dafuer keine verschachtelte Antwort, die sich schlechter durchsuchen laesst.
+   *
+   * Archivierte Projekte bleiben aussen vor, solange nicht ausdruecklich danach
+   * gefragt wird — sie sind keine sinnvollen Ziele einer neuen Zuordnung. Mit
+   * `mitArchivierten` werden sie sichtbar, sonst bliebe eine alte Zuordnung auf
+   * ein inzwischen archiviertes Projekt unsichtbar und damit unloeschbar.
+   */
+  app.get('/admin/api/projekte', async (request, reply) =>
+    geschuetzt(request, reply, async () => {
+      const query = z
+        .object({
+          q: suchbegriff,
+          mitArchivierten: abfrageWahrheit.default(false),
+        })
+        .parse(request.query ?? {});
+
+      const projekte = await dienst(
+        ladeProjekte({ q: query.q, mitArchivierten: query.mitArchivierten }),
+        'Die Projektliste ließ sich nicht laden.',
+      );
+      return { projekte };
+    }),
   );
 
   // --- Nutzung und Protokolle ----------------------------------------------

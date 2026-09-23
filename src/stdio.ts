@@ -77,6 +77,19 @@ async function main(): Promise<void> {
     apiKeyName: 'stdio',
     allowedProjectIds: projekte,
     readOnly,
+    // Im Einzelplatzbetrieb gibt es keine Person: Es gibt weder Kopfzeilen, aus
+    // denen sich eine Identitaet ergaebe, noch eine Datenbank, in der eine
+    // Zuordnung stehen koennte. Die Matrix bleibt deshalb abgeschaltet und die
+    // Sperrliste leer — damit entscheiden allein JAMA_ALLOWED_PROJECTS und
+    // JAMA_READ_ONLY, genau wie bisher. "nur_lesen" steht nur der
+    // Vollstaendigkeit halber da; bei abgeschalteter Matrix wirkt es nicht.
+    rechte: {
+      gesperrteProjektIds: [],
+      allowedProjectIds: projekte,
+      readOnly,
+      person: { aktiv: false, erkannt: false, grundstufe: 'keine', lesen: [], schreiben: [] },
+      beiUnbekannt: 'nur_lesen',
+    },
     toolsets: toolsetsAusUmgebung(),
     // Im Einzelplatzbetrieb gibt es kein Dashboard; die Abschaltung laeuft
     // deshalb ueber die Umgebung, z. B. JAMA_DISABLED_TOOLS=jama_delete_item

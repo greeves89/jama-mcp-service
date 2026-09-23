@@ -1,11 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildMcpServer } from './server.js';
-import { buildToolContext, markKeyUsed, resolveApiKey } from '../service/keys.js';
+import { buildToolContext, markKeyUsed, resolveApiKey, type ResolvedKey } from '../service/keys.js';
 import { recordAudit, recordUsage } from '../service/usage.js';
 import { toServiceError } from '../shared/errors.js';
 import { logger } from '../shared/logger.js';
-import { aufruferAusAnfrage, aufruferText } from './aufrufer.js';
+import { aufruferAusAnfrage, aufruferText, type Aufrufer } from './aufrufer.js';
+import { findeJamaBenutzerId, ladeZuordnung } from '../service/personen.js';
+import type { Personenlage, Rechtelage } from './rechte.js';
 
 /**
  * MCP ueber Streamable HTTP.
@@ -17,6 +19,80 @@ import { aufruferAusAnfrage, aufruferText } from './aufrufer.js';
  * Sperrung oder Rechteaenderung sofort greift statt erst beim naechsten
  * Verbindungsaufbau.
  */
+
+/** Lage einer Person, die nicht zugeordnet werden konnte. */
+const UNBEKANNTE_PERSON: Personenlage = {
+  aktiv: true,
+  erkannt: false,
+  grundstufe: 'keine',
+  lesen: [],
+  schreiben: [],
+};
+
+/**
+ * Baut die Rechtelage fuer genau diese Anfrage.
+ *
+ * Sperrliste und Schalter kommen aus dem Zugang, die Person aus den Kopfzeilen
+ * des Aufrufs. Das Nachschlagen selbst steht bewusst nicht hier, sondern in
+ * src/service/personen.ts: Diese Datei verdrahtet, sie kennt keine Tabellen.
+ *
+ * Ist die Matrix fuer den Zugang nicht eingeschaltet, wird gar nicht erst
+ * nachgeschlagen. Zugaenge, die die Matrix nicht nutzen, bezahlen sie sonst mit
+ * zwei zusaetzlichen Datenbankabfragen je Werkzeugaufruf.
+ */
+async function baueRechtelage(
+  resolved: ResolvedKey,
+  basis: { allowedProjectIds: number[]; readOnly: boolean },
+  aufrufer: Aufrufer | undefined,
+): Promise<Rechtelage> {
+  const lage: Rechtelage = {
+    gesperrteProjektIds: resolved.key.gesperrteProjektIds ?? [],
+    allowedProjectIds: basis.allowedProjectIds,
+    readOnly: basis.readOnly,
+    person: { aktiv: false, erkannt: false, grundstufe: 'keine', lesen: [], schreiben: [] },
+    // Vorgabe "nur_lesen", weil die Benutzer-Kopfzeilen nicht von jedem Client
+    // ankommen (siehe src/mcp/aufrufer.ts). Mit "ablehnen" wuerde das
+    // Scharfschalten der Matrix den laufenden Betrieb lahmlegen.
+    beiUnbekannt: 'nur_lesen',
+  };
+
+  if (!resolved.key.personenrechteAktiv) return lage;
+
+  try {
+    // Beides sind Kopfzeilenwerte. Schickt der Client statt des Anmeldenamens
+    // einen Anzeigenamen, findet der Abgleich schlicht nichts — die Person
+    // gilt dann als unbekannt und darf hoechstens lesen. Das ist der
+    // gewuenschte Ausgang; geraten wird an dieser Stelle nicht.
+    const jamaUserId = await findeJamaBenutzerId({
+      email: aufrufer?.email,
+      anmeldename: aufrufer?.name,
+    });
+    if (jamaUserId === null) return { ...lage, person: UNBEKANNTE_PERSON };
+
+    const zuordnung = await ladeZuordnung(jamaUserId);
+    return {
+      ...lage,
+      person: {
+        aktiv: true,
+        erkannt: true,
+        grundstufe: zuordnung.grundstufe,
+        lesen: zuordnung.lesen,
+        schreiben: zuordnung.schreiben,
+      },
+    };
+  } catch (error) {
+    // Faellt das Nachschlagen aus, gilt die Person als unbekannt. Das ist die
+    // engere Auslegung: Lesen im Rahmen der Zugangsfreigabe bleibt moeglich,
+    // Aenderungen sind gesperrt. Die Alternative — die Anfrage scheitern zu
+    // lassen — wuerde eine Stoerung der Datenbank zu einem Ausfall der ganzen
+    // Anbindung machen.
+    logger.warn(
+      { err: error, apiKeyId: resolved.key.id },
+      'Personenzuordnung nicht ermittelbar — Aufruf gilt als nicht zugeordnet',
+    );
+    return { ...lage, person: UNBEKANNTE_PERSON };
+  }
+}
 
 function bearerToken(request: FastifyRequest): string | undefined {
   const header = request.headers.authorization;
@@ -44,7 +120,12 @@ export function registerMcpRoute(app: FastifyInstance): void {
     }
 
     const aufrufer = aufruferAusAnfrage(request);
-    const context = { ...(await buildToolContext(resolved)), aufrufer };
+    const basis = await buildToolContext(resolved);
+    const context = {
+      ...basis,
+      aufrufer,
+      rechte: await baueRechtelage(resolved, basis, aufrufer),
+    };
     const keyInfo = { id: resolved.key.id, name: resolved.key.name };
 
     const server = buildMcpServer(context, {

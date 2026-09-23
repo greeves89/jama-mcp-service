@@ -6,6 +6,23 @@ Konzept: [docs/KONZEPT.md](docs/KONZEPT.md) · Vergleich: [docs/vergleich-mcp.md
 
 ## Offen
 
+- [ ] **Kopfzeilenfrage klaeren, bevor die Personenmatrix scharf geschaltet
+      wird.** Open WebUI reicht die Benutzerkennung nicht an MCP-Server ueber
+      Streamable HTTP weiter (open-webui Nr. 21184). Bis dahin ist jede
+      aufrufende Person unbekannt und darf nur lesen. Zwei Wege: ein
+      vorgelagerter Proxy setzt die Kopfzeile aus der Sitzung, oder der Name
+      kommt als Werkzeugargument — letzteres ist faelschbar und taugt nur fuer
+      die Nachvollziehbarkeit, nicht als Schutz
+- [ ] **Probelauf im Admin bildet die Personenmatrix nicht ab.** Er baut den
+      Kontext ueber `buildToolContext` ohne Rechtelage und faellt damit auf das
+      bisherige Verhalten zurueck. Sobald die Lage dort gebaut wird, kann
+      `ToolContext.rechte` zur Pflicht werden
+- [ ] **Abgleich zeitgesteuert laufen lassen.** Bisher nur auf Knopfdruck.
+      Die Gruppen aendern sich selten, ein monatlicher Lauf genuegt
+- [ ] **Velocity-Report einlesen.** Jamas Schnittstelle liefert keine
+      Zuordnung von Gruppe zu Projekt; der Report tut es. Er wuerde die
+      Erstbefuellung der Matrix abkuerzen
+
 - [ ] **Contract-Tests gegen die reale Instanz** — bisher wurden im Betrieb nur
       einzelne Tools benutzt. Je ein echter Aufruf pro lesendem Tool mit Abgleich
       des Antwortschemas steht aus; erst das deckt Abweichungen bei Feldnamen,

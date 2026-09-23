@@ -9,6 +9,8 @@ import {
   LogOut,
   ScrollText,
   Settings,
+  ShieldCheck,
+  Users,
   Wrench,
 } from 'lucide-react';
 import { api } from './api';
@@ -21,12 +23,16 @@ import UsagePage from './pages/Usage';
 import AuditPage from './pages/Audit';
 import EventsPage from './pages/Events';
 import ToolsPage from './pages/Tools';
+import PersonenPage from './pages/Personen';
+import ZuordnungPage from './pages/Zuordnung';
 import SettingsPage from './pages/SettingsPage';
 
 const navigation = [
-  { to: '/', label: 'Uebersicht', Icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Übersicht', Icon: LayoutDashboard, end: true },
   { to: '/keys', label: 'API-Keys', Icon: KeyRound },
   { to: '/connections', label: 'Verbindungen', Icon: Cable },
+  { to: '/personen', label: 'Personen', Icon: Users },
+  { to: '/zuordnung', label: 'Rechtezuordnung', Icon: ShieldCheck },
   { to: '/usage', label: 'Nutzung', Icon: ChartNoAxesColumn },
   { to: '/audit', label: 'Audit-Log', Icon: ScrollText },
   { to: '/events', label: 'Aufrufe', Icon: Activity },
@@ -108,6 +114,8 @@ export default function App() {
             <Route path="/" element={<OverviewPage />} />
             <Route path="/keys" element={<KeysPage />} />
             <Route path="/connections" element={<ConnectionsPage />} />
+            <Route path="/personen" element={<PersonenPage />} />
+            <Route path="/zuordnung" element={<ZuordnungPage />} />
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/events" element={<EventsPage />} />

@@ -4,6 +4,62 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.15.0] — 2026-09-23
+
+Rechte haengen ab hier an der **Person**, nicht mehr nur am Zugang. Grundlage
+ist die Festlegung aus der Durchsicht: intern duerfen alle lesen, aendern soll
+nur, wer regelmaessig damit arbeitet; je Partnerfirma ein eigener Zugang; ein
+Verwaltungsbereich bleibt fuer alle ausser wenigen unsichtbar.
+
+### Hinzugefuegt
+
+- **Spiegel von Benutzern und Projekten aus Jama.** Vier neue Tabellen
+  (`jama_benutzer`, `jama_projekte`, `personenrechte`, `personenvorgabe`). Der
+  Abgleich holt beides ueber die vorhandene Anbindung und laesst sich im
+  Dashboard anstossen. Wer in Jama fehlt, wird stillgelegt und nicht geloescht —
+  sonst verlieren bestehende Zuordnungen ihren Bezugspunkt.
+- **Zuordnung Person zu Projekt** mit den Stufen `keine`, `lesen`, `schreiben`,
+  dazu eine Grundstufe je Person fuer alles, was nicht ausdruecklich zugeordnet
+  ist.
+- **Sperrliste je Zugang** (`gesperrteProjektIds`). Sie hat Vorrang vor allem
+  anderen und laesst sich durch keine Zuordnung aufheben. Gedacht fuer
+  Bereiche, die ueber diese Anbindung niemand sehen soll.
+- **Zwei Dashboard-Seiten:** „Personen" mit Abgleich, Suche und der Grundstufe
+  je Zeile; „Zuordnung" mit dem Projektbaum, drei Schaltern je Zeile und einer
+  Kaskade ueber Ordner.
+- **„Alle auf Lesen"** setzt die Grundstufe fuer alle aktiven Personen in einem
+  Zug. Ohne diese Abkuerzung muesste bei zweihundert Personen jede Zeile
+  einzeln angeklickt werden — und die Matrix wuerde nie eingeschaltet.
+- **`src/mcp/rechte.ts`** — die Entscheidung, wer was darf, als reine Funktion
+  ohne Datenbank. 43 Tests mit einer MCDC-Matrix ueber alle zehn Bedingungen.
+
+### Geaendert
+
+- **Die Rangfolge der Rechte ist jetzt dreistufig und strikt:** Sperrliste
+  schlaegt alles, die Zugangsfreigabe des Schluessels ist die Obergrenze, die
+  Personenzuordnung schraenkt darunter weiter ein. **Eine Zuordnung kann nie
+  mehr erlauben, als der Zugang hergibt.** Nichts wird verrechnet.
+- `sichtbareTrefferzahl` meldet die gefilterte Zahl jetzt bei **jeder**
+  Einschraenkung, nicht nur bei gesetzter Zugangsfreigabe. Sonst verriete die
+  Trefferzahl, wie viel in gesperrten Bereichen liegt.
+- Warnungen des Abgleichs tragen keine Fehlertexte aus der Jama-Anbindung mehr
+  nach aussen. Die enthielten regelmaessig die interne Adresse der Instanz; der
+  vollstaendige Grund steht weiterhin im Serverprotokoll.
+
+### Zu beachten beim Einspielen
+
+- Die Migration ist **rein additiv** — vier neue Tabellen, zwei neue Spalten,
+  kein `DROP` und keine Aenderung an bestehenden Spalten. Sie laesst sich auf
+  einer laufenden Instanz einspielen.
+- **Die Matrix ist je Zugang abschaltbar und steht auf aus.** Ein bestehender
+  Zugang verhaelt sich unveraendert, bis er umgestellt wird.
+- **Eine Person ohne Eintrag gilt als „keine".** Wer die Matrix fuer einen
+  Zugang einschaltet, blendet damit zunaechst jeden aus. Der uebliche erste
+  Griff danach ist „Alle auf Lesen".
+- **Offener Punkt:** Open WebUI reicht die Benutzerkennung derzeit nicht an
+  MCP-Server ueber Streamable HTTP weiter. Bis das geklaert ist, bleibt jede
+  aufrufende Person unbekannt — sie darf dann lesen, aber nichts aendern.
+
 ## [1.14.0] — 2026-09-23
 
 ### Hinzugefuegt

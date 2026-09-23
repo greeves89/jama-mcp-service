@@ -69,6 +69,17 @@ export const apiKeys = pgTable(
     toolsets: text('toolsets').array().notNull(),
     /** Leer bedeutet: alle Projekte, die der Jama-Benutzer ohnehin sehen darf. */
     allowedProjectIds: integer('allowed_project_ids').array().notNull().default([]),
+    /**
+     * Sperrliste. Gilt unabhaengig von allen Freigaben und hebt nie etwas auf.
+     * Gedacht fuer Bereiche, die ueber diese Anbindung niemand sehen soll.
+     */
+    gesperrteProjektIds: integer('gesperrte_projekt_ids').array().notNull().default([]),
+    /**
+     * Schaltet die personenbezogene Matrix fuer diesen Zugang scharf. Bewusst
+     * je Zugang und mit false als Vorgabe: ein bestehender Zugang laeuft
+     * unveraendert weiter, bis er umgestellt wird.
+     */
+    personenrechteAktiv: boolean('personenrechte_aktiv').notNull().default(false),
     readOnly: boolean('read_only').notNull().default(true),
     rateLimitRps: real('rate_limit_rps'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -178,6 +189,110 @@ export const settings = pgTable('settings', {
   updatedBy: text('updated_by'),
 });
 
+/**
+ * Spiegel der Jama-Benutzer.
+ *
+ * Bewusst ein Spiegel und keine Quelle: Jama bleibt fuehrend, hier wird nur
+ * nachgeschrieben. Ohne diesen Spiegel muesste jede Ansicht der
+ * Rechtezuordnung die Benutzerliste live aus Jama holen — ein Aufruf ueber die
+ * gesamte Instanz, der gegen das Rate-Limit zaehlt und beim Blaettern durch
+ * eine Liste nicht zu bezahlen ist.
+ */
+export const jamaBenutzer = pgTable(
+  'jama_benutzer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Die Nummer aus Jama. Sie ist der Bezugspunkt der Rechtezuordnung. */
+    jamaUserId: integer('jama_user_id').notNull(),
+    username: text('username'),
+    email: text('email'),
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    /** 'CREATOR' | 'FLOAT' | 'STAKEHOLDER' | 'REVIEWER' | weitere. */
+    licenseType: text('license_type'),
+    /**
+     * In Jama deaktiviert oder dort nicht mehr auffindbar. Der Datensatz bleibt
+     * stehen: eine geloeschte Zeile wuerde die Zuordnung ihres Bezugspunkts
+     * berauben und die Nachvollziehbarkeit mit sich nehmen.
+     */
+    aktiv: boolean('aktiv').notNull().default(true),
+    abgeglichenAm: timestamp('abgeglichen_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('jama_benutzer_user_idx').on(table.jamaUserId),
+    index('jama_benutzer_aktiv_idx').on(table.aktiv),
+  ],
+);
+
+/**
+ * Spiegel der Jama-Projekte, aus demselben Grund wie der Benutzerspiegel.
+ *
+ * elternId traegt die Jama-Projektnummer des uebergeordneten Ordners. Der Baum
+ * wird daraus erst in der Oberflaeche gebaut; die Tabelle haelt bewusst nur die
+ * flache Kante, weil jede vorberechnete Baumstruktur beim naechsten Umhaengen
+ * in Jama falsch waere.
+ */
+export const jamaProjekte = pgTable(
+  'jama_projekte',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jamaProjectId: integer('jama_project_id').notNull(),
+    projectKey: text('project_key'),
+    name: text('name'),
+    /** Jama-Projektnummer des Ordners darueber; null bei einer Wurzel. */
+    elternId: integer('eltern_id'),
+    istOrdner: boolean('ist_ordner').notNull().default(false),
+    /** Gesetzt, sobald Jama das Projekt nicht mehr liefert. Nie geloescht. */
+    archiviert: boolean('archiviert').notNull().default(false),
+    abgeglichenAm: timestamp('abgeglichen_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('jama_projekte_project_idx').on(table.jamaProjectId),
+    index('jama_projekte_eltern_idx').on(table.elternId),
+  ],
+);
+
+/**
+ * Die Zuordnung Person zu Projekt.
+ *
+ * Beide Spalten tragen die Jama-Nummer und nicht die uuid des Spiegels. Das ist
+ * der Kern der Entscheidung: der Spiegel ist jederzeit verwerfbar und neu
+ * aufbaubar, seine uuids sind es damit auch. Haengte die Zuordnung daran, waere
+ * sie nach dem ersten Neuaufbau verloren. Die Jama-Nummer ueberlebt ihn.
+ * Aus demselben Grund steht hier bewusst kein Fremdschluessel auf den Spiegel:
+ * er wuerde genau das Loeschen und Neuaufbauen verhindern oder die Zuordnung
+ * mitreissen.
+ */
+export const personenrechte = pgTable(
+  'personenrechte',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jamaUserId: integer('jama_user_id').notNull(),
+    jamaProjectId: integer('jama_project_id').notNull(),
+    /** 'lesen' | 'schreiben'. 'keine' wird nicht gespeichert, sondern geloescht. */
+    stufe: text('stufe').notNull(),
+    vergebenAm: timestamp('vergeben_am', { withTimezone: true }).notNull().defaultNow(),
+    vergebenVon: text('vergeben_von'),
+  },
+  (table) => [
+    uniqueIndex('personenrechte_person_projekt_idx').on(table.jamaUserId, table.jamaProjectId),
+    index('personenrechte_person_idx').on(table.jamaUserId),
+    index('personenrechte_projekt_idx').on(table.jamaProjectId),
+  ],
+);
+
+/**
+ * Grundstufe je Person, damit nicht jede Person einzeln an jedes Projekt
+ * geklickt werden muss. Sie wirkt nur innerhalb der Grenzen des Zugangs und
+ * kann diese nie ausweiten.
+ */
+export const personenvorgabe = pgTable('personenvorgabe', {
+  jamaUserId: integer('jama_user_id').primaryKey(),
+  /** 'keine' | 'lesen' | 'schreiben'. */
+  grundstufe: text('grundstufe').notNull().default('lesen'),
+  notiz: text('notiz'),
+});
+
 export type JamaConnection = typeof jamaConnections.$inferSelect;
 export type NewJamaConnection = typeof jamaConnections.$inferInsert;
 export type ApiKey = typeof apiKeys.$inferSelect;
@@ -187,3 +302,11 @@ export type NewUsageEvent = typeof usageEvents.$inferInsert;
 export type AuditEntry = typeof auditLog.$inferSelect;
 export type NewAuditEntry = typeof auditLog.$inferInsert;
 export type AdminSession = typeof adminSessions.$inferSelect;
+export type JamaBenutzer = typeof jamaBenutzer.$inferSelect;
+export type NewJamaBenutzer = typeof jamaBenutzer.$inferInsert;
+export type JamaProjektSpiegel = typeof jamaProjekte.$inferSelect;
+export type NewJamaProjektSpiegel = typeof jamaProjekte.$inferInsert;
+export type Personenrecht = typeof personenrechte.$inferSelect;
+export type NewPersonenrecht = typeof personenrechte.$inferInsert;
+export type Personenvorgabe = typeof personenvorgabe.$inferSelect;
+export type NewPersonenvorgabe = typeof personenvorgabe.$inferInsert;
