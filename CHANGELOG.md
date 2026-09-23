@@ -4,6 +4,32 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.12.0] — 2026-09-23
+
+Fortsetzung von 1.11.0. Anlass ist ein Betrieb, in dem mehrere Kunden ihre
+jeweils eigene KI an dieselbe Jama-Instanz anbinden und es dafuer nur einen
+einzigen technischen Jama-Zugang geben soll. Damit ist die Projektfreigabe des
+API-Keys die einzige Grenze zwischen den Mandanten — sie muss deshalb auch dort
+greifen, wo gar keine Projektdaten abgefragt werden.
+
+### Sicherheit
+- **Drei weitere Werkzeuge umgingen die Projektfreigabe**, wieder ueber die
+  eigene Kennung ihres Ziels statt ueber ein Item:
+  - `jama_compare_baselines` — vollstaendiger Inhaltsvergleich zweier Staende
+    aus einem fremden Projekt
+  - `jama_list_testruns` und `jama_testcycle_summary` — Pruefstand und
+    Fortschritt fremder Projekte
+- **`jama_list_users` gab einem beschraenkten Zugang die gesamte Instanz preis.**
+  Jama kennt keine Zuordnung von Personen zu Projekten, die sich abfragen
+  liesse; die Liste ist immer instanzweit. Ein Kundenzugang erhielt damit die
+  Belegschaft samt E-Mail-Adressen und die Ansprechpartner aller uebrigen
+  Kunden. Bei gesetzter Projektfreigabe entfaellt nun die freie Suche, und
+  ausgegeben werden nur Kennung und Name — ohne E-Mail, Benutzername und
+  Lizenztyp. Beides bleibt, weil sonst jede Zuweisung unlesbar waere.
+
+Damit prueft jedes der 53 Werkzeuge die Projektfreigabe oder kommt ohne
+Projektbezug aus.
+
 ## [1.11.0] — 2026-09-23
 
 ### Sicherheit

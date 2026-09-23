@@ -122,6 +122,19 @@ const compareBaselines = defineTool({
   },
   mutating: false,
   handler: async (args, context) => {
+    // Baselines werden ueber ihre eigene Kennung angesprochen. Ohne diese
+    // Pruefung liesse sich der vollstaendige Inhaltsvergleich zweier Staende
+    // aus einem fremden Projekt abrufen.
+    for (const baselineId of [args.baselineIdA, args.baselineIdB]) {
+      const baseline = await context.client.http.getOptional<{ project?: number }>(
+        `baselines/${baselineId}`,
+      );
+      if (!baseline) {
+        throw new ServiceError('JAMA_NOT_FOUND', `Baseline ${baselineId} existiert nicht.`, 404);
+      }
+      assertProjectAllowed(baseline.project, context);
+    }
+
     const load = async (baselineId: number) => {
       const { items, total } = await context.client.http.paginate<JamaItem>(
         `baselines/${baselineId}/versioneditems`,

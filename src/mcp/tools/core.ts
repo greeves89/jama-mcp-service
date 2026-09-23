@@ -695,7 +695,7 @@ const listUsers = defineTool({
   toolset: 'core',
   title: 'Benutzer auflisten',
   description:
-    'Liefert die Jama-Benutzer, optional nach Name oder E-Mail gefiltert. Nuetzlich, um Zuweisungen aufzuloesen oder Verantwortliche zu ermitteln. Erfordert entsprechende Administrationsrechte in Jama.',
+    'Liefert die Jama-Benutzer, optional nach Name oder E-Mail gefiltert. Nuetzlich, um Zuweisungen aufzuloesen oder Verantwortliche zu ermitteln. Erfordert entsprechende Administrationsrechte in Jama. Ist der Zugang auf bestimmte Projekte beschraenkt, entfaellt die freie Suche und es werden nur Kennung und Name geliefert — ohne E-Mail-Adresse und Lizenztyp.',
   inputSchema: {
     contains: z.string().optional().describe('Filtert auf Name, Benutzername oder E-Mail.'),
     activeOnly: z.boolean().default(true).describe('Nur aktive Benutzer ausgeben.'),
@@ -703,6 +703,27 @@ const listUsers = defineTool({
   },
   mutating: false,
   handler: async (args, context) => {
+    // Die Benutzerliste ist instanzweit: Jama kennt keine Zuordnung von
+    // Personen zu Projekten, die sich abfragen liesse. Bei einem Zugang, der
+    // ausdruecklich auf bestimmte Projekte beschraenkt ist, waere die
+    // vollstaendige Liste deshalb ein Ausbruch aus genau dieser Grenze — in
+    // einer Instanz mit mehreren Kunden die Belegschaft samt
+    // E-Mail-Adressen und die Ansprechpartner der uebrigen Kunden.
+    //
+    // Kennung und Name bleiben, weil sonst jede Zuweisung ("Bearbeiter: 12345")
+    // unlesbar waere. Die freie Suche entfaellt: Mit ihr liesse sich die Instanz
+    // gezielt nach Personen durchforsten, was mit dem Aufloesen einer Zuweisung
+    // nichts mehr zu tun hat.
+    const beschraenkt = context.allowedProjectIds.length > 0;
+
+    if (beschraenkt && args.contains !== undefined) {
+      throw new ServiceError(
+        'PROJECT_FORBIDDEN',
+        'Dieser Zugang ist auf bestimmte Projekte beschraenkt. Die freie Suche in der Benutzerliste steht ihm nicht zur Verfuegung, weil sie die gesamte Instanz umfasst. Einzelne Zuweisungen lassen sich weiterhin ueber die Benutzerkennung aufloesen.',
+        403,
+      );
+    }
+
     const users: JamaUser[] = await context.client.schema.getUsers();
     const needle = args.contains?.toLowerCase();
 
@@ -720,11 +741,20 @@ const listUsers = defineTool({
       data: filtered.map((user) => ({
         id: user.id,
         name: [user.firstName, user.lastName].filter(Boolean).join(' '),
-        benutzername: user.username,
-        email: user.email,
-        lizenztyp: user.licenseType,
-        aktiv: user.active,
+        ...(beschraenkt
+          ? {}
+          : {
+              benutzername: user.username,
+              email: user.email,
+              lizenztyp: user.licenseType,
+              aktiv: user.active,
+            }),
       })),
+      notes: beschraenkt
+        ? [
+            'Dieser Zugang ist auf bestimmte Projekte beschraenkt. Ausgegeben werden deshalb nur Kennung und Name, ohne E-Mail-Adresse und Lizenztyp.',
+          ]
+        : undefined,
     };
   },
 });

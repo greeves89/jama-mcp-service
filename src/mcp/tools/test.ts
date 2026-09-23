@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { defineTool, PAGINATION_DESCRIPTION, type ToolDefinition } from '../types.js';
+import {
+  defineTool,
+  PAGINATION_DESCRIPTION,
+  type ToolContext,
+  type ToolDefinition,
+} from '../types.js';
 import { assertProjectAllowed } from '../guards.js';
 import { buildMappingContext, toTestRunSummary } from '../../jama/mapping.js';
 import { htmlToMarkdown } from '../../jama/markdown.js';
@@ -13,6 +18,22 @@ import { ServiceError } from '../../shared/errors.js';
  * ueber die Rohdaten wuerde bei mehreren hundert Testlaeufen das Kontextfenster
  * fuellen, obwohl der Anwender nur die Zahlen und die Fehlschlaege sehen will.
  */
+
+/**
+ * Stellt sicher, dass ein Testzyklus zu einem freigegebenen Projekt gehoert.
+ *
+ * Zyklen werden ueber ihre eigene Kennung angesprochen, nicht ueber ein Item.
+ * Ohne diese Pruefung liessen sich Testlaeufe und Auswertungen fremder Projekte
+ * abrufen — in einer Instanz mit mehreren Kunden ein Einblick in deren
+ * Pruefstand und damit in ihren Projektfortschritt.
+ */
+async function pruefeTestzyklusProjekt(testCycleId: number, context: ToolContext): Promise<void> {
+  const zyklus = await context.client.http.getOptional<JamaTestCycle>(`testcycles/${testCycleId}`);
+  if (!zyklus) {
+    throw new ServiceError('JAMA_NOT_FOUND', `Testzyklus ${testCycleId} existiert nicht.`, 404);
+  }
+  assertProjectAllowed(zyklus.project, context);
+}
 
 const listTestPlans = defineTool({
   name: 'jama_list_testplans',
@@ -262,6 +283,8 @@ const listTestRuns = defineTool({
   },
   mutating: false,
   handler: async (args, context) => {
+    await pruefeTestzyklusProjekt(args.testCycleId, context);
+
     const { items, total } = await context.client.http.paginate<JamaTestRun>(
       `testcycles/${args.testCycleId}/testruns`,
       { limit: args.limit },
@@ -369,6 +392,8 @@ const testCycleSummary = defineTool({
   },
   mutating: false,
   handler: async (args, context) => {
+    await pruefeTestzyklusProjekt(args.testCycleId, context);
+
     const { items, total } = await context.client.http.paginate<JamaTestRun>(
       `testcycles/${args.testCycleId}/testruns`,
       { limit: args.maxRuns },
