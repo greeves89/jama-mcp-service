@@ -1,4 +1,5 @@
 import { coreTools } from './tools/core.js';
+import { bilderTools } from './tools/bilder.js';
 import { traceTools } from './tools/trace.js';
 import { writeTools } from './tools/write.js';
 import { collabTools } from './tools/collab.js';
@@ -16,6 +17,7 @@ import type { Toolset } from '../shared/toolsets.js';
 
 export const allTools: ToolDefinition[] = [
   ...coreTools,
+  ...bilderTools,
   ...traceTools,
   ...writeTools,
   ...collabTools,

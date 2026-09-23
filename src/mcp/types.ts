@@ -48,9 +48,26 @@ export interface AuditIntent {
   message?: string;
 }
 
+/** Ein Bild, das als eigener Inhaltsblock an den Client geht. */
+export interface ToolBild {
+  /** Rohdaten base64-kodiert, ohne data:-Praefix. */
+  data: string;
+  mimeType: string;
+  /** Woher es stammt — erscheint im Text, damit die Zuordnung erkennbar bleibt. */
+  quelle: string;
+}
+
 export interface ToolResult {
   /** Wird als Text an den Client geliefert. Objekte werden als JSON serialisiert. */
   data: unknown;
+  /**
+   * Bilder, die zusaetzlich zum Text ausgeliefert werden.
+   *
+   * Sie gehen als eigene Inhaltsbloecke hinaus, nicht als Text: Ein Bild im
+   * JSON waere eine base64-Zeichenkette, die das Modell nicht betrachten kann
+   * und die allein durch ihre Laenge das Kontextfenster fuellt.
+   */
+  bilder?: ToolBild[];
   /** Zusaetzliche Hinweise, die dem LLM helfen, den naechsten Schritt zu waehlen. */
   notes?: string[];
   /** Projekt-ID fuer die Nutzungsstatistik. */

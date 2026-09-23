@@ -77,6 +77,7 @@ function buildInstructions(context: ToolContext): string {
     'Zugang zu Jama Connect, dem Werkzeug fuer Anforderungs-, Test- und Nachweismanagement.',
     '',
     'Arbeitsregeln:',
+    '- Verweist eine Anforderung auf eine Abbildung, Skizze, einen Schaltplan oder ein Diagramm, dessen Inhalt fuer die Aufgabe gebraucht wird: jama_get_item_images aufrufen. In der Textausgabe erscheinen Bilder nur als Platzhalter; erst dieser Aufruf liefert sie zum Betrachten.',
     '- Verweise auf Items niemals selbst zusammensetzen. Jedes Item bringt seine Adresse im Feld "url" mit; diese unveraendert verwenden. Eine aus dem Document Key gebaute Adresse fuehrt ins Leere, weil Jama die numerische ID erwartet.',
     '- Ist nur ein Projektname oder ein Projektkuerzel bekannt (etwa "Werk Musterstadt" oder "PRJ-1234"), zuerst jama_list_projects mit contains aufrufen. Das liefert die numerische Projekt-ID, die alle uebrigen Tools verlangen. Niemals den Anwender nach einer Projekt-ID fragen, ohne vorher so gesucht zu haben.',
     '- Eine Kennung wie "PRJ-1234" ist in aller Regel ein Projektkuerzel, kein Document Key. Document Keys nennen zusaetzlich den Item-Typ, etwa "PRJ-REQ-42". Bei Unklarheit zuerst in den Projekten suchen, nicht in den Items.',
@@ -206,7 +207,18 @@ function registerTool(
         truncated,
       });
 
-      return { content: [{ type: 'text' as const, text }] };
+      // Bilder gehen als eigene Inhaltsbloecke hinaus. Im JSON waeren sie eine
+      // base64-Zeichenkette, die das Modell nicht betrachten koennte und die
+      // allein durch ihre Laenge das Kontextfenster fuellt.
+      const bildbloecke = (result.bilder ?? []).map((bild) => ({
+        type: 'image' as const,
+        data: bild.data,
+        mimeType: bild.mimeType,
+      }));
+
+      return {
+        content: [{ type: 'text' as const, text }, ...bildbloecke],
+      };
     }) as never,
   );
 }

@@ -4,6 +4,25 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.14.0] — 2026-09-23
+
+### Hinzugefuegt
+- **`jama_get_item_images` reicht Bilder aus Jama an das Sprachmodell weiter.**
+  Bilder stecken in Jama als Data-URI mitten in der Beschreibung oder als Anhang
+  am Item. In der Textausgabe erscheinen sie nur als Platzhalter — ein einzelnes
+  eingebettetes Bild erreicht als Zeichenkette leicht mehrere hunderttausend
+  Zeichen und wuerde das Kontextfenster fuellen, ohne dass das Modell etwas
+  davon betrachten koennte. Sie gehen deshalb als eigene Bildbloecke hinaus.
+  Damit sieht das Modell, was auf einem Schaltplan, einem Messschrieb oder einer
+  Skizze steht — Inhalte, die in Anforderungsdokumenten haeufig die eigentliche
+  Aussage tragen und im Text nirgends stehen.
+- Wo die Bilder herkommen, ist waehlbar (Beschreibung, Anhaenge oder beides).
+  Anzahl und Groesse sind begrenzt, weil jedes Bild Platz im Kontextfenster des
+  Clients belegt; uebersprungene Bilder werden im Ergebnis benannt statt
+  stillschweigend weggelassen.
+- Tool-Ergebnisse koennen allgemein Bilder tragen (`ToolResult.bilder`), der
+  MCP-Server liefert sie als eigene Inhaltsbloecke aus.
+
 ## [1.13.0] — 2026-09-23
 
 Ergebnis einer unabhaengigen Pruefung der Mandantentrennung. Alle 53 Werkzeuge,
