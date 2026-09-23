@@ -383,6 +383,22 @@ const restoreDeleted = defineTool({
   mutating: true,
   destructive: true,
   handler: async (args, context) => {
+    // Die Aktivitaet nennt das Projekt, in dem geloescht wurde. Ohne diese
+    // Pruefung liesse sich mit einem beschraenkten Zugang in jedem Projekt der
+    // Instanz eine Loeschung rueckgaengig machen — eine Veraenderung fremder
+    // Daten, die niemand veranlasst hat.
+    const aktivitaet = await context.client.http.getOptional<{ project?: number }>(
+      `activities/${args.activityId}`,
+    );
+    if (!aktivitaet) {
+      throw new ServiceError(
+        'JAMA_NOT_FOUND',
+        `Aktivitaet ${args.activityId} existiert nicht.`,
+        404,
+      );
+    }
+    assertProjectAllowed(aktivitaet.project, context);
+
     const betroffene = await context.client.http.getOptional<Array<{ id?: number; documentKey?: string }>>(
       `activities/${args.activityId}/affecteditems`,
     );

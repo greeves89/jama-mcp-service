@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { defineTool, PAGINATION_DESCRIPTION, type ToolDefinition } from '../types.js';
+import {
+  defineTool,
+  PAGINATION_DESCRIPTION,
+  type ToolContext,
+  type ToolDefinition,
+} from '../types.js';
 import { assertProjectAllowed } from '../guards.js';
 import { htmlToMarkdown } from '../../jama/markdown.js';
 import type { JamaAttachment, JamaComment, JamaItem, JamaReview } from '../../jama/types.js';
@@ -16,6 +21,22 @@ import { ServiceError } from '../../shared/errors.js';
 
 function labsHint(endpoint: string): string {
   return `Der Endpunkt "${endpoint}" ist auf dieser Jama-Instanz nicht verfuegbar. Er gehoert zu den labs-Endpoints und existiert erst ab bestimmten Versionen (Reviews ab 9.32, Reports ab 8.79). Ein erneuter Versuch wird nicht helfen.`;
+}
+
+/**
+ * Stellt sicher, dass ein Review zu einem freigegebenen Projekt gehoert.
+ *
+ * Reviews werden ueber ihre eigene ID angesprochen, nicht ueber ein Item. Ohne
+ * diese Pruefung liesse sich mit einem auf bestimmte Projekte beschraenkten
+ * Zugang der Stand und der Kommentarverlauf jedes Reviews der Instanz lesen,
+ * sofern die ID bekannt ist — in einer Instanz mit mehreren Kundenprojekten
+ * ein Einblick ueber Mandantengrenzen hinweg.
+ */
+async function pruefeReviewProjekt(reviewId: number, context: ToolContext): Promise<void> {
+  const review = await context.client.http.getOptional<JamaReview>(`reviews/${reviewId}`, {
+    apiVersion: 'labs',
+  });
+  assertProjectAllowed(review?.project, context);
 }
 
 const listReviews = defineTool({
@@ -83,6 +104,8 @@ const getReviewStatus = defineTool({
   labs: true,
   handler: async (args, context) => {
     try {
+      await pruefeReviewProjekt(args.reviewId, context);
+
       let revisionId = args.revisionId;
 
       if (revisionId === undefined) {
@@ -162,6 +185,8 @@ const listReviewComments = defineTool({
   labs: true,
   handler: async (args, context) => {
     try {
+      await pruefeReviewProjekt(args.reviewId, context);
+
       const { items, total } = await context.client.http.paginate<JamaComment>(
         `reviews/${args.reviewId}/comments`,
         { limit: args.limit, apiVersion: 'labs' },
@@ -363,6 +388,13 @@ const downloadAttachment = defineTool({
     const metadata = await context.client.http.getOptional<JamaAttachment>(
       `attachments/${args.attachmentId}`,
     );
+
+    // Anhaenge werden ueber ihre eigene ID geholt, nicht ueber das Item. Ohne
+    // diese Pruefung liesse sich mit einem auf ein Projekt beschraenkten Zugang
+    // jede Datei der Instanz herunterladen, sofern ihre ID bekannt ist — in
+    // einer Instanz mit mehreren Kundenprojekten ein Abfluss ueber Projekt- und
+    // Mandantengrenzen hinweg.
+    assertProjectAllowed(metadata?.project, context);
 
     const response = await context.client.http.rawRequest(
       `attachments/${args.attachmentId}/file`,

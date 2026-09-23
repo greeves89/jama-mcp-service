@@ -208,6 +208,18 @@ const createTestCycle = defineTool({
   },
   mutating: true,
   handler: async (args, context) => {
+    // Der Zyklus haengt am Testplan; dessen Projekt entscheidet ueber die
+    // Freigabe. Ohne diese Pruefung liesse sich mit einem auf ein Projekt
+    // beschraenkten Zugang in jedem beliebigen Testplan der Instanz ein Zyklus
+    // anlegen.
+    const plan = await context.client.http.getOptional<JamaTestPlan>(
+      `testplans/${args.testPlanId}`,
+    );
+    if (!plan) {
+      throw new ServiceError('JAMA_NOT_FOUND', `Testplan ${args.testPlanId} existiert nicht.`, 404);
+    }
+    assertProjectAllowed(plan.project, context);
+
     const body: Record<string, unknown> = {
       fields: { name: args.name, startDate: args.startDate, endDate: args.endDate },
     };

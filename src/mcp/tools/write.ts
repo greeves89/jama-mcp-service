@@ -824,6 +824,27 @@ const deleteRelationship = defineTool({
   mutating: true,
   destructive: true,
   handler: async (args, context) => {
+    // Die Beziehung wird ueber ihre eigene ID angesprochen. Ohne diese Pruefung
+    // liesse sich mit einem auf bestimmte Projekte beschraenkten Zugang jede
+    // Beziehung der Instanz loeschen, sofern ihre ID bekannt ist — und
+    // geloeschte Verknuepfungen fallen niemandem auf, bis eine Nachweisluecke
+    // im Audit auftaucht.
+    const beziehung = await context.client.http.getOptional<{ fromItem?: number; toItem?: number }>(
+      `relationships/${args.relationshipId}`,
+    );
+    if (!beziehung) {
+      throw new ServiceError(
+        'JAMA_NOT_FOUND',
+        `Beziehung ${args.relationshipId} existiert nicht.`,
+        404,
+      );
+    }
+    for (const itemId of [beziehung.fromItem, beziehung.toItem]) {
+      if (itemId === undefined) continue;
+      const item = await context.client.http.getOptional<JamaItem>(`items/${itemId}`);
+      assertProjectAllowed(item?.project, context);
+    }
+
     await context.client.http.request(`relationships/${args.relationshipId}`, {
       method: 'DELETE',
     });

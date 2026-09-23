@@ -4,6 +4,30 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.11.0] — 2026-09-23
+
+### Sicherheit
+- **Sechs Werkzeuge umgingen die Projektfreigabe eines Zugangs.** Sie sprechen
+  ihr Ziel ueber dessen eigene Kennung an — Anhang, Beziehung, Review,
+  Aktivitaet, Testplan — statt ueber ein Item, und pruefen deshalb kein Projekt.
+  Mit einem auf bestimmte Projekte beschraenkten Zugang liessen sich so fremde
+  Inhalte erreichen, sofern die Kennung bekannt war:
+  - `jama_download_attachment` — jede Datei der Instanz herunterladen
+  - `jama_get_review_status` und `jama_list_review_comments` — Stand und
+    Kommentarverlauf fremder Reviews lesen
+  - `jama_delete_relationship` — jede Beziehung der Instanz loeschen
+  - `jama_restore_deleted` — Loeschungen in fremden Projekten rueckgaengig machen
+  - `jama_create_testcycle` — in fremden Testplaenen Zyklen anlegen
+
+  Alle sechs ermitteln das zugehoerige Projekt nun vorab und pruefen die
+  Freigabe. Besonders schwer wiegt das in Instanzen, in denen mehrere Kunden
+  getrennte Projektbereiche haben: Dort verlief die Grenze zwischen Mandanten
+  genau entlang dieser Freigabe.
+
+### Hinzugefuegt
+- Tests fuer die Projektfreigabe, einschliesslich des Falls, dass ein
+  Projektbezug unbekannt bleibt.
+
 ## [1.10.0] — 2026-09-04
 
 ### Behoben
